@@ -2,9 +2,14 @@ import type { Server, Socket } from 'socket.io';
 import {
   GameError,
   MAX_CHAT_LENGTH,
+  MAX_PLAYERS,
   MIN_PLAYERS,
   DalmutiGame,
+  createBotStrategy,
+  enumeratePlayableCombos,
   type Ack,
+  type BotDifficulty,
+  type BotView,
   type ChatMessage,
   type ClientToServerEvents,
   type GameEvent,
@@ -12,13 +17,31 @@ import {
   type ServerToClientEvents,
 } from '@dalmuti/shared';
 import {
+  createBotMember,
   createMember,
   Room,
+  type RoomMember,
   RoomManager,
   sanitizeOptions,
   systemMessage,
   userMessage,
 } from './room';
+
+const BOT_DIFFICULTIES: readonly BotDifficulty[] = ['easy', 'normal', 'hard'];
+const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
+  easy: '쉬움',
+  normal: '보통',
+  hard: '어려움',
+};
+/** 테스트에서 봇 지연을 없앨 수 있게 env로 오버라이드 (호출 시점에 읽는다) */
+function botDelayMs(): number {
+  const override = process.env.BOT_DELAY_MS;
+  if (override !== undefined && Number.isFinite(Number(override))) {
+    return Number(override);
+  }
+  // 사람처럼 보이는 자연스러운 지연
+  return 600 + Math.random() * 900;
+}
 
 export type IoServer = Server<ClientToServerEvents, ServerToClientEvents>;
 export type IoSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -68,6 +91,11 @@ export class GameGateway {
     socket.on('room:rejoin', (payload, ack) => this.onRejoin(socket, payload, ack));
     socket.on('room:leave', (ack) => this.onLeave(socket, ack));
     socket.on('room:options', (payload, ack) => this.onOptions(socket, payload, ack));
+    socket.on('room:addBot', (payload, ack) => this.onAddBot(socket, payload, ack));
+    socket.on('room:removeBot', (payload, ack) => this.onRemoveBot(socket, payload, ack));
+    socket.on('room:setBotDifficulty', (payload, ack) =>
+      this.onSetBotDifficulty(socket, payload, ack),
+    );
     socket.on('room:start', (ack) => this.onStart(socket, ack));
     socket.on('game:play', (payload, ack) =>
       this.onGameAction(socket, ack, (game, pid) => {
@@ -206,7 +234,11 @@ export class GameGateway {
       }),
     );
     // 손패는 ack가 아닌 game:hand 이벤트로만 전달 (단일 출처 유지)
-    if (room.game) this.sendHand(room, member.id);
+    if (room.game) {
+      this.sendHand(room, member.id);
+      // 사람이 모두 이탈해 멈춰 있던 봇 진행 재개
+      this.scheduleBots(room);
+    }
   }
 
   private onLeave(socket: IoSocket, ack: Ack): void {
@@ -268,8 +300,8 @@ export class GameGateway {
     (socket.data as SocketData).roomCode = undefined;
     (socket.data as SocketData).playerId = undefined;
 
-    if (room.members.length === 0) {
-      this.rooms.delete(room.code);
+    if (room.members.length === 0 || room.hasNoHumans) {
+      this.rooms.delete(room.code); // 봇만 남은 방은 유지할 이유가 없다
       return;
     }
     room.reassignHostIfNeeded();
@@ -293,6 +325,94 @@ export class GameGateway {
     ack(ok(undefined));
   }
 
+  // ── 봇 관리 (방장, 로비 전용) ─────────────────────────────────
+
+  /** 방장+로비 검증 공통 헬퍼. 실패 시 ack까지 처리하고 null 반환 */
+  private hostLobbyCtx(
+    socket: IoSocket,
+    ack: Ack,
+  ): { room: Room; memberId: string } | null {
+    const ctx = getCtx(socket, this.rooms);
+    if (!ctx) {
+      ack(fail('NOT_IN_ROOM', '방에 있지 않습니다'));
+      return null;
+    }
+    if (ctx.memberId !== ctx.room.hostId) {
+      ack(fail('NOT_HOST', '방장만 가능합니다'));
+      return null;
+    }
+    if (ctx.room.isInGame) {
+      ack(fail('GAME_ALREADY_STARTED', '게임 중에는 변경할 수 없습니다'));
+      return null;
+    }
+    return ctx;
+  }
+
+  private onAddBot(
+    socket: IoSocket,
+    payload: { difficulty: BotDifficulty },
+    ack: Ack,
+  ): void {
+    if (typeof ack !== 'function') return;
+    const ctx = this.hostLobbyCtx(socket, ack);
+    if (!ctx) return;
+    const difficulty = payload?.difficulty;
+    if (!BOT_DIFFICULTIES.includes(difficulty)) {
+      return ack(fail('INVALID_DIFFICULTY', '난이도는 easy/normal/hard 중 하나입니다'));
+    }
+    if (ctx.room.isFull) return ack(fail('ROOM_FULL', '방이 가득 찼습니다'));
+
+    const bot = createBotMember(difficulty, ctx.room.members.map((m) => m.nickname));
+    ctx.room.members.push(bot);
+    ctx.room.touch();
+    this.pushChat(
+      ctx.room,
+      systemMessage(`🤖 ${bot.nickname}(${BOT_DIFFICULTY_LABELS[difficulty]}) 봇이 추가되었습니다.`),
+    );
+    this.broadcastRoom(ctx.room);
+    ack(ok(undefined));
+  }
+
+  private onRemoveBot(socket: IoSocket, payload: { botId: string }, ack: Ack): void {
+    if (typeof ack !== 'function') return;
+    const ctx = this.hostLobbyCtx(socket, ack);
+    if (!ctx) return;
+    const bot = typeof payload?.botId === 'string' ? ctx.room.findById(payload.botId) : undefined;
+    if (!bot?.isBot) return ack(fail('NOT_A_BOT', '봇이 아닙니다'));
+
+    ctx.room.members = ctx.room.members.filter((m) => m.id !== bot.id);
+    ctx.room.forgetChatRate(bot.id);
+    ctx.room.touch();
+    this.pushChat(ctx.room, systemMessage(`🤖 ${bot.nickname} 봇이 제거되었습니다.`));
+    this.broadcastRoom(ctx.room);
+    ack(ok(undefined));
+  }
+
+  private onSetBotDifficulty(
+    socket: IoSocket,
+    payload: { botId: string; difficulty: BotDifficulty },
+    ack: Ack,
+  ): void {
+    if (typeof ack !== 'function') return;
+    const ctx = this.hostLobbyCtx(socket, ack);
+    if (!ctx) return;
+    const bot = typeof payload?.botId === 'string' ? ctx.room.findById(payload.botId) : undefined;
+    if (!bot?.isBot) return ack(fail('NOT_A_BOT', '봇이 아닙니다'));
+    if (!BOT_DIFFICULTIES.includes(payload?.difficulty)) {
+      return ack(fail('INVALID_DIFFICULTY', '난이도는 easy/normal/hard 중 하나입니다'));
+    }
+    bot.botDifficulty = payload.difficulty;
+    ctx.room.touch();
+    this.pushChat(
+      ctx.room,
+      systemMessage(
+        `🤖 ${bot.nickname} 난이도가 ${BOT_DIFFICULTY_LABELS[payload.difficulty]}(으)로 변경되었습니다.`,
+      ),
+    );
+    this.broadcastRoom(ctx.room);
+    ack(ok(undefined));
+  }
+
   private onStart(socket: IoSocket, ack: Ack): void {
     if (typeof ack !== 'function') return;
     const ctx = getCtx(socket, this.rooms);
@@ -306,7 +426,12 @@ export class GameGateway {
 
     try {
       room.game = new DalmutiGame(
-        room.members.map((m) => ({ id: m.id, nickname: m.nickname, isBot: m.isBot })),
+        room.members.map((m) => ({
+          id: m.id,
+          nickname: m.nickname,
+          isBot: m.isBot,
+          botDifficulty: m.botDifficulty,
+        })),
         room.options,
       );
       room.game.startRound();
@@ -445,14 +570,113 @@ export class GameGateway {
     // 이미 그 결과가 반영된 상태를 들고 있다 (참조 순서 꼬임 방지)
     this.broadcastGameState(room);
     for (const m of room.members) {
-      if (m.connected) this.sendHand(room, m.id);
+      if (m.connected && !m.isBot) this.sendHand(room, m.id);
     }
     for (const event of game.drainEvents()) {
+      // hard 봇의 카드 카운팅용 공개 카드 추적
+      if (event.type === 'ROUND_STARTED') {
+        room.playedRankCounts = {};
+      } else if (event.type === 'PLAYED') {
+        for (const c of event.cards) {
+          room.playedRankCounts[c.rank] = (room.playedRankCounts[c.rank] ?? 0) + 1;
+        }
+      }
       const publicEvent = toPublicEvent(event);
       this.io.to(room.code).emit('game:event', publicEvent);
       const text = this.eventToSystemText(room, publicEvent);
       if (text) this.pushChat(room, systemMessage(text));
     }
+    this.scheduleBots(room);
+  }
+
+  // ── 봇 실행 ─────────────────────────────────────────────────
+
+  /** 지금 행동해야 할 참가자가 봇이면 잠시 후 실행하도록 예약 */
+  private scheduleBots(room: Room): void {
+    const game = room.game;
+    if (!game || room.botTimer) return;
+    // 사람이 아무도 접속해 있지 않으면 봇도 멈춘다 (재접속 시 재개)
+    if (room.members.every((m) => m.isBot || !m.connected)) return;
+    if (!this.pendingBotActor(room)) return;
+    room.botTimer = setTimeout(() => {
+      room.botTimer = null;
+      try {
+        this.runBotAction(room);
+      } catch (e) {
+        console.error('[bot] 실행 중 오류:', e);
+      }
+    }, botDelayMs());
+  }
+
+  /** 현재 단계에서 행동이 필요한 봇 멤버 */
+  private pendingBotActor(room: Room): RoomMember | null {
+    const game = room.game;
+    if (!game) return null;
+    const botOf = (id: string | null | undefined): RoomMember | null => {
+      const m = id ? room.findById(id) : undefined;
+      return m?.isBot ? m : null;
+    };
+    switch (game.phase) {
+      case 'PLAYING':
+        return botOf(game.currentPlayer?.id);
+      case 'REVOLUTION':
+        return botOf(game.getRevolutionCandidateId());
+      case 'TAXATION': {
+        for (const id of game.getPublicState().taxationPendingIds) {
+          const bot = botOf(id);
+          if (bot) return bot;
+        }
+        return null;
+      }
+      default:
+        return null; // ROUND_END/GAME_END 진행은 방장(사람) 몫
+    }
+  }
+
+  private runBotAction(room: Room): void {
+    const game = room.game;
+    const actor = this.pendingBotActor(room);
+    if (!game || !actor) return;
+
+    const strategy = createBotStrategy(actor.botDifficulty ?? 'normal');
+    const pub = game.getPublicState();
+    const view: BotView = {
+      myId: actor.id,
+      myRank: pub.players.find((p) => p.id === actor.id)?.rank ?? null,
+      hand: game.getHandOf(actor.id),
+      field: game.field,
+      players: pub.players,
+      playedRankCounts: { ...room.playedRankCounts },
+    };
+
+    try {
+      if (game.phase === 'REVOLUTION') {
+        game.declareRevolution(actor.id, strategy.decideRevolution(view));
+      } else if (game.phase === 'TAXATION') {
+        const count = game.getPendingTaxReturn(actor.id)?.count ?? 1;
+        game.payTaxReturn(actor.id, strategy.decideTaxReturn(view, count));
+      } else if (game.phase === 'PLAYING') {
+        const decision = strategy.decidePlay(view);
+        if (decision.type === 'play') game.play(actor.id, decision.cardIds);
+        else game.pass(actor.id);
+      }
+    } catch (e) {
+      // 전략 버그로 게임 전체가 멈추지 않도록 폴백 (패스, 리드면 첫 유효 수)
+      console.error(`[bot] ${actor.nickname} 행동 실패, 폴백 시도:`, e);
+      try {
+        if (game.phase === 'PLAYING') {
+          if (game.field) {
+            game.pass(actor.id);
+          } else {
+            const combos = enumeratePlayableCombos(game.getHandOf(actor.id), null);
+            if (combos[0]) game.play(actor.id, combos[0].map((c) => c.id));
+          }
+        }
+      } catch (fallbackError) {
+        console.error('[bot] 폴백도 실패 — 게임이 멈출 수 있습니다:', fallbackError);
+      }
+    }
+    this.pump(room); // pump 끝에서 다음 봇이 다시 예약된다
   }
 
   private eventToSystemText(room: Room, e: PublicGameEvent): string | null {

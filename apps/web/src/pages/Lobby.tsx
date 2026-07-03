@@ -1,17 +1,34 @@
-import { MIN_PLAYERS, type GameOptions } from '@dalmuti/shared';
+import { useState } from 'react';
+import {
+  MAX_PLAYERS,
+  MIN_PLAYERS,
+  type BotDifficulty,
+  type GameOptions,
+} from '@dalmuti/shared';
 import { ChatPanel } from '../components/ChatPanel';
 import { useStore } from '../store';
+
+const DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
+  easy: '🟢 쉬움',
+  normal: '🟡 보통',
+  hard: '🔴 어려움',
+};
 
 export function LobbyPage() {
   const room = useStore((s) => s.room)!;
   const me = useStore((s) => s.me)!;
   const startGame = useStore((s) => s.startGame);
   const updateOptions = useStore((s) => s.updateOptions);
+  const addBot = useStore((s) => s.addBot);
+  const removeBot = useStore((s) => s.removeBot);
+  const setBotDifficulty = useStore((s) => s.setBotDifficulty);
   const leaveRoom = useStore((s) => s.leaveRoom);
   const setError = useStore((s) => s.setError);
+  const [botDifficulty, setNewBotDifficulty] = useState<BotDifficulty>('normal');
 
   const isHost = room.hostId === me.playerId;
   const canStart = room.players.length >= MIN_PLAYERS;
+  const isFull = room.players.length >= MAX_PLAYERS;
 
   const copyCode = async () => {
     try {
@@ -39,10 +56,44 @@ export function LobbyPage() {
             <li key={p.id} className={p.connected ? '' : 'player-disconnected'}>
               <span className="player-name">
                 {p.isHost && '👑 '}
+                {p.isBot && '🤖 '}
                 {p.nickname}
                 {p.id === me.playerId && ' (나)'}
               </span>
-              {!p.connected && <span className="player-status">연결 끊김</span>}
+              {p.isBot && p.botDifficulty && (
+                <span className="bot-controls">
+                  {isHost ? (
+                    <>
+                      <select
+                        value={p.botDifficulty}
+                        aria-label={`${p.nickname} 난이도`}
+                        onChange={(e) =>
+                          void setBotDifficulty(p.id, e.target.value as BotDifficulty)
+                        }
+                      >
+                        {(Object.keys(DIFFICULTY_LABELS) as BotDifficulty[]).map((d) => (
+                          <option key={d} value={d}>
+                            {DIFFICULTY_LABELS[d]}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="bot-remove"
+                        aria-label={`${p.nickname} 제거`}
+                        onClick={() => void removeBot(p.id)}
+                      >
+                        ✕
+                      </button>
+                    </>
+                  ) : (
+                    <span className="bot-badge">{DIFFICULTY_LABELS[p.botDifficulty]}</span>
+                  )}
+                </span>
+              )}
+              {!p.connected && !p.isBot && (
+                <span className="player-status">연결 끊김</span>
+              )}
             </li>
           ))}
           {Array.from({ length: Math.max(0, MIN_PLAYERS - room.players.length) }).map(
@@ -53,6 +104,31 @@ export function LobbyPage() {
             ),
           )}
         </ul>
+
+        {isHost && (
+          <div className="lobby-bot-row">
+            <span>인원이 부족하면 AI 봇으로 채워보세요:</span>
+            <select
+              value={botDifficulty}
+              aria-label="추가할 봇 난이도"
+              onChange={(e) => setNewBotDifficulty(e.target.value as BotDifficulty)}
+            >
+              {(Object.keys(DIFFICULTY_LABELS) as BotDifficulty[]).map((d) => (
+                <option key={d} value={d}>
+                  {DIFFICULTY_LABELS[d]}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={isFull}
+              onClick={() => void addBot(botDifficulty)}
+            >
+              🤖 봇 추가
+            </button>
+          </div>
+        )}
 
         <section className="lobby-options">
           <h3>게임 옵션 {!isHost && <small>(방장만 변경 가능)</small>}</h3>

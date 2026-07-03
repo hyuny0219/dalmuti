@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type {
+  BotDifficulty,
   Card,
   ChatMessage,
   GameOptions,
@@ -37,6 +38,9 @@ type Store = {
   leaveRoom: () => Promise<void>;
   startGame: () => Promise<void>;
   updateOptions: (options: Partial<GameOptions>) => Promise<void>;
+  addBot: (difficulty: BotDifficulty) => Promise<void>;
+  removeBot: (botId: string) => Promise<void>;
+  setBotDifficulty: (botId: string, difficulty: BotDifficulty) => Promise<void>;
   playSelected: () => Promise<void>;
   passTurn: () => Promise<void>;
   declareRevolution: (declare: boolean) => Promise<void>;
@@ -136,6 +140,21 @@ export const useStore = create<Store>((set, get) => {
 
     async updateOptions(options) {
       const res = await call('room:options', options);
+      if (!res.ok) fail(res.error.message);
+    },
+
+    async addBot(difficulty) {
+      const res = await call('room:addBot', { difficulty });
+      if (!res.ok) fail(res.error.message);
+    },
+
+    async removeBot(botId) {
+      const res = await call('room:removeBot', { botId });
+      if (!res.ok) fail(res.error.message);
+    },
+
+    async setBotDifficulty(botId, difficulty) {
+      const res = await call('room:setBotDifficulty', { botId, difficulty });
       if (!res.ok) fail(res.error.message);
     },
 

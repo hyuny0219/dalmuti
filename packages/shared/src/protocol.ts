@@ -73,6 +73,12 @@ export type ClientToServerEvents = {
   ) => void;
   'room:leave': (ack: Ack) => void;
   'room:options': (payload: Partial<GameOptions>, ack: Ack) => void;
+  'room:addBot': (payload: { difficulty: BotDifficulty }, ack: Ack) => void;
+  'room:removeBot': (payload: { botId: string }, ack: Ack) => void;
+  'room:setBotDifficulty': (
+    payload: { botId: string; difficulty: BotDifficulty },
+    ack: Ack,
+  ) => void;
   'room:start': (ack: Ack) => void;
   'game:play': (payload: { cardIds: string[] }, ack: Ack) => void;
   'game:pass': (ack: Ack) => void;
@@ -107,6 +113,8 @@ export type ServerErrorCode =
   | 'GAME_NOT_STARTED'
   | 'INVALID_NICKNAME'
   | 'NICKNAME_TAKEN'
+  | 'NOT_A_BOT'
+  | 'INVALID_DIFFICULTY'
   | 'INVALID_SESSION'
   | 'INVALID_PAYLOAD'
   | 'CHAT_RATE_LIMITED'
