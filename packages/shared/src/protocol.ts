@@ -49,11 +49,14 @@ export type JoinResult = {
   room: RoomState;
 };
 
+/**
+ * 재접속 결과. 손패는 여기 포함하지 않는다 —
+ * 직후 전송되는 game:hand 이벤트가 손패의 단일 출처(single source of truth).
+ */
 export type RejoinResult = {
   playerId: string;
   room: RoomState;
   game: GamePublicState | null;
-  hand: Card[] | null;
   chatHistory: ChatMessage[];
 };
 
@@ -107,4 +110,5 @@ export type ServerErrorCode =
   | 'INVALID_SESSION'
   | 'INVALID_PAYLOAD'
   | 'CHAT_RATE_LIMITED'
-  | 'NOT_ENOUGH_PLAYERS';
+  | 'NOT_ENOUGH_PLAYERS'
+  | 'SERVER_FULL';

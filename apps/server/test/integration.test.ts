@@ -210,8 +210,9 @@ describe('재접속', () => {
     clients[3]!.disconnect();
     await observerSawDrop;
 
-    // 새 소켓으로 재접속
+    // 새 소켓으로 재접속 — 손패는 ack 직후 game:hand 이벤트로 도착
     const fresh = await connect();
+    const handPromise = waitFor<{ cards: Card[] }>(fresh, 'game:hand');
     const rejoin = expectOk<RejoinResult>(
       await call(fresh, 'room:rejoin', {
         roomCode: joins[3]!.roomCode,
@@ -220,7 +221,7 @@ describe('재접속', () => {
     );
     expect(rejoin.playerId).toBe(joins[3]!.playerId);
     expect(rejoin.game?.phase).toBe('PLAYING');
-    expect(rejoin.hand).toHaveLength(20);
+    expect((await handPromise).cards).toHaveLength(20);
     expect(rejoin.chatHistory.length).toBeGreaterThan(0);
     expect(
       rejoin.room.players.find((p) => p.id === joins[3]!.playerId)?.connected,
@@ -244,5 +245,61 @@ describe('재접속', () => {
     const state = await roomUpdate;
     expect(state.players).toHaveLength(3);
     expect(state.players.some((p) => p.id === joins[2]!.playerId)).toBe(false);
+  });
+
+  it('로비에서 이전 소켓이 살아있는 채로 재접속해도 방과 멤버가 유지된다 (재진입 회귀)', async () => {
+    const host = await connect();
+    const join = expectOk<JoinResult>(
+      await call(host, 'room:create', { nickname: '고스트' }),
+    );
+
+    // 이전 소켓이 아직 연결된 상태에서 새 소켓으로 재접속 (두 번째 탭 시나리오)
+    const fresh = await connect();
+    const rejoin = expectOk<RejoinResult>(
+      await call(fresh, 'room:rejoin', {
+        roomCode: join.roomCode,
+        sessionToken: join.sessionToken,
+      }),
+    );
+    expect(rejoin.room.players).toHaveLength(1);
+    expect(rejoin.room.players[0]!.connected).toBe(true);
+
+    // 방이 삭제되지 않았고 새 소켓으로 정상 동작한다
+    const chat = await call(fresh, 'chat:send', { text: '살아있다' });
+    expect(chat.ok).toBe(true);
+  });
+
+  it('게임 중 방장이 이탈하면 접속 중인 멤버가 방장을 승계한다', async () => {
+    const { clients, joins } = await setupRoom();
+    expectOk(await call(clients[0]!, 'room:start'));
+    await waitFor<GamePublicState>(clients[1]!, 'game:state');
+
+    const sawNewHost = new Promise<RoomState>((resolve) => {
+      clients[1]!.on('room:state', (s: RoomState) => {
+        if (s.hostId !== joins[0]!.playerId) resolve(s);
+      });
+    });
+    clients[0]!.disconnect();
+    const state = await sawNewHost;
+    expect(state.hostId).not.toBe(joins[0]!.playerId);
+    expect(state.players.find((p) => p.id === state.hostId)?.connected).toBe(true);
+  });
+
+  it('게임 중 room:leave 해도 좌석과 세션이 보존되어 복귀할 수 있다', async () => {
+    const { clients, joins } = await setupRoom();
+    expectOk(await call(clients[0]!, 'room:start'));
+    await waitFor<GamePublicState>(clients[3]!, 'game:state');
+
+    expectOk(await call(clients[3]!, 'room:leave'));
+
+    const fresh = await connect();
+    const rejoin = expectOk<RejoinResult>(
+      await call(fresh, 'room:rejoin', {
+        roomCode: joins[3]!.roomCode,
+        sessionToken: joins[3]!.sessionToken,
+      }),
+    );
+    expect(rejoin.game?.phase).toBe('PLAYING');
+    expect(rejoin.room.players).toHaveLength(4); // 좌석 보존
   });
 });

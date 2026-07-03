@@ -111,6 +111,7 @@ export class GameGateway {
 
     const member = createMember(nickname, socket.id);
     const room = this.rooms.create(member, payload?.options);
+    if (!room) return ack(fail('SERVER_FULL', '서버에 방이 가득 찼습니다. 잠시 후 다시 시도해주세요'));
     this.bind(socket, room.code, member.id);
     this.pushChat(room, systemMessage(`${nickname}님이 방을 만들었습니다.`));
     this.broadcastRoom(room);
@@ -172,10 +173,21 @@ export class GameGateway {
         ? room.findByToken(payload.sessionToken)
         : undefined;
     if (!member) return ack(fail('INVALID_SESSION', '세션이 유효하지 않습니다'));
+    if (getCtx(socket, this.rooms)) {
+      return ack(fail('ALREADY_IN_ROOM', '이미 방에 연결되어 있습니다'));
+    }
 
-    // 이전 소켓이 살아있으면 끊는다 (중복 접속 방지)
+    // 이전 소켓이 살아있으면 끊는다 (중복 접속 방지).
+    // 주의: disconnect는 onDisconnect를 동기 재진입시키므로, 그 핸들러가
+    // 멤버를 제거하거나 접속 상태를 덮어쓰지 못하도록 바인딩을 먼저 지운다.
     if (member.socketId && member.socketId !== socket.id) {
-      this.io.sockets.sockets.get(member.socketId)?.disconnect(true);
+      const old = this.io.sockets.sockets.get(member.socketId);
+      if (old) {
+        (old.data as SocketData).roomCode = undefined;
+        (old.data as SocketData).playerId = undefined;
+        old.leave(room.code);
+        old.disconnect(true);
+      }
     }
     member.socketId = socket.id;
     member.connected = true;
@@ -190,10 +202,10 @@ export class GameGateway {
         playerId: member.id,
         room: room.toState(),
         game: room.game?.getPublicState() ?? null,
-        hand: room.game ? room.game.getHandOf(member.id) : null,
         chatHistory: [...room.chat],
       }),
     );
+    // 손패는 ack가 아닌 game:hand 이벤트로만 전달 (단일 출처 유지)
     if (room.game) this.sendHand(room, member.id);
   }
 
@@ -201,28 +213,46 @@ export class GameGateway {
     if (typeof ack !== 'function') return;
     const ctx = getCtx(socket, this.rooms);
     if (!ctx) return ack(fail('NOT_IN_ROOM', '방에 있지 않습니다'));
-    this.removeFromRoom(socket, ctx.room, ctx.memberId, '나갔습니다');
+    if (ctx.room.isInGame) {
+      // 게임 중 이탈은 좌석과 세션을 보존한다 (엔진에서 자리를 뺄 수 없고,
+      // 제거하면 세션 토큰이 사라져 복귀도 불가능해 게임이 교착된다)
+      this.markDisconnected(socket, ctx.room, ctx.memberId, '자리를 비웠습니다 (재접속 가능)');
+    } else {
+      this.removeFromRoom(socket, ctx.room, ctx.memberId, '나갔습니다');
+    }
     ack(ok(undefined));
   }
 
   private onDisconnect(socket: IoSocket): void {
     const ctx = getCtx(socket, this.rooms);
     if (!ctx) return;
-    const { room, memberId } = ctx;
+    if (ctx.room.isInGame) {
+      // 게임 중엔 자리를 보존하고 재접속을 기다린다
+      this.markDisconnected(socket, ctx.room, ctx.memberId, '연결이 끊어졌습니다');
+    } else {
+      this.removeFromRoom(socket, ctx.room, ctx.memberId, '나갔습니다');
+    }
+  }
+
+  private markDisconnected(
+    socket: IoSocket,
+    room: Room,
+    memberId: string,
+    verb: string,
+  ): void {
     const member = room.findById(memberId);
     if (!member) return;
-
-    if (room.isInGame) {
-      // 게임 중엔 자리를 보존하고 재접속을 기다린다
-      member.connected = false;
-      member.socketId = null;
-      room.game?.setConnected(memberId, false);
-      this.pushChat(room, systemMessage(`${member.nickname}님의 연결이 끊겼습니다.`));
-      this.broadcastRoom(room);
-      this.broadcastGameState(room);
-    } else {
-      this.removeFromRoom(socket, room, memberId, '나갔습니다');
-    }
+    member.connected = false;
+    member.socketId = null;
+    room.game?.setConnected(memberId, false);
+    socket.leave(room.code);
+    (socket.data as SocketData).roomCode = undefined;
+    (socket.data as SocketData).playerId = undefined;
+    // 방장이 자리를 비우면 접속 중인 멤버에게 승계 (다음 라운드 진행이 막히지 않게)
+    room.reassignHostIfNeeded();
+    this.pushChat(room, systemMessage(`${member.nickname}님이 ${verb}.`));
+    this.broadcastRoom(room);
+    this.broadcastGameState(room);
   }
 
   private removeFromRoom(
@@ -233,6 +263,7 @@ export class GameGateway {
   ): void {
     const member = room.findById(memberId);
     room.members = room.members.filter((m) => m.id !== memberId);
+    room.forgetChatRate(memberId);
     socket.leave(room.code);
     (socket.data as SocketData).roomCode = undefined;
     (socket.data as SocketData).playerId = undefined;
@@ -284,9 +315,12 @@ export class GameGateway {
       return ack(this.gameErrorToAck(e));
     }
     room.touch();
+    console.log(`[room] ${room.code} 게임 시작 (${room.members.length}명)`);
     this.pushChat(room, systemMessage('게임을 시작합니다!'));
-    this.broadcastRoom(room);
+    // 게임 상태를 먼저 보내고 room:state(IN_GAME)를 나중에 —
+    // 클라이언트가 IN_GAME 화면을 그릴 때 game:state가 이미 도착해 있도록
     this.pump(room);
+    this.broadcastRoom(room);
     ack(ok(undefined));
   }
 
@@ -392,10 +426,14 @@ export class GameGateway {
     const game = room.game;
     const member = room.findById(memberId);
     if (!game || !member?.socketId) return;
-    this.io.to(member.socketId).emit('game:hand', {
-      cards: game.getHandOf(memberId),
-      pendingTaxReturnCount: game.getPendingTaxReturn(memberId)?.count ?? null,
-    });
+    try {
+      this.io.to(member.socketId).emit('game:hand', {
+        cards: game.getHandOf(memberId),
+        pendingTaxReturnCount: game.getPendingTaxReturn(memberId)?.count ?? null,
+      });
+    } catch {
+      // 게임 종료 후 입장해 엔진에 좌석이 없는 멤버 — 손패가 없으므로 스킵
+    }
   }
 
   /** 엔진 이벤트를 소비해 브로드캐스트 + 시스템 메시지 생성, 상태/손패 동기화 */
@@ -403,15 +441,17 @@ export class GameGateway {
     const game = room.game;
     if (!game) return;
 
+    // 상태 스냅샷을 먼저 보내야 클라이언트가 이벤트/시스템 메시지를 받았을 때
+    // 이미 그 결과가 반영된 상태를 들고 있다 (참조 순서 꼬임 방지)
+    this.broadcastGameState(room);
+    for (const m of room.members) {
+      if (m.connected) this.sendHand(room, m.id);
+    }
     for (const event of game.drainEvents()) {
       const publicEvent = toPublicEvent(event);
       this.io.to(room.code).emit('game:event', publicEvent);
       const text = this.eventToSystemText(room, publicEvent);
       if (text) this.pushChat(room, systemMessage(text));
-    }
-    this.broadcastGameState(room);
-    for (const m of room.members) {
-      if (m.connected) this.sendHand(room, m.id);
     }
   }
 

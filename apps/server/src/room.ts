@@ -59,11 +59,25 @@ export class Room {
     return this.members.find((m) => m.id === playerId);
   }
 
-  /** 방장 승계: 접속 중인 사람 우선, 없으면 첫 멤버 */
+  /**
+   * 방장 승계: 방장이 없거나 접속이 끊겼으면 접속 중인 멤버에게 넘긴다.
+   * (게임 중 방장이 이탈해도 다음 라운드 진행이 막히지 않도록)
+   * 아무도 접속해 있지 않으면 방장을 유지해 복귀 시 그대로 방장이 된다.
+   */
   reassignHostIfNeeded(): void {
-    if (this.members.some((m) => m.id === this.hostId)) return;
-    const next = this.members.find((m) => m.connected) ?? this.members[0];
-    if (next) this.hostId = next.id;
+    const host = this.members.find((m) => m.id === this.hostId);
+    if (host?.connected) return;
+    const next = this.members.find((m) => m.connected);
+    if (next) {
+      this.hostId = next.id;
+    } else if (!host && this.members[0]) {
+      this.hostId = this.members[0].id;
+    }
+  }
+
+  /** 떠난 멤버의 레이트리밋 기록 정리 (장수명 방의 메모리 누수 방지) */
+  forgetChatRate(playerId: string): void {
+    this.chatTimestamps.delete(playerId);
   }
 
   addChat(message: ChatMessage): void {
@@ -173,10 +187,15 @@ export function sanitizeOptions(input: Partial<GameOptions> | undefined): GameOp
 
 const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
+/** 서버 전체 동시 방 수 상한 (무제한 방 생성 DoS 방지) */
+export const MAX_ROOMS = 500;
+
 export class RoomManager {
   private rooms = new Map<string, Room>();
 
-  create(host: RoomMember, options: Partial<GameOptions> | undefined): Room {
+  /** 상한 초과 시 null (호출부에서 SERVER_FULL 응답) */
+  create(host: RoomMember, options: Partial<GameOptions> | undefined): Room | null {
+    if (this.rooms.size >= MAX_ROOMS) return null;
     let code: string;
     do {
       code = Array.from(
@@ -186,15 +205,18 @@ export class RoomManager {
     } while (this.rooms.has(code));
     const room = new Room(code, host, options ?? {});
     this.rooms.set(code, room);
+    console.log(`[room] 생성 ${code} (전체 ${this.rooms.size}개)`);
     return room;
   }
 
   get(code: string): Room | undefined {
-    return this.rooms.get(code.toUpperCase());
+    return typeof code === 'string' ? this.rooms.get(code.toUpperCase()) : undefined;
   }
 
   delete(code: string): void {
-    this.rooms.delete(code);
+    if (this.rooms.delete(code)) {
+      console.log(`[room] 삭제 ${code} (전체 ${this.rooms.size}개)`);
+    }
   }
 
   get size(): number {
