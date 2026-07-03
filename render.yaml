@@ -1,0 +1,18 @@
+# Render 블루프린트 — 무료 웹서비스 1개로 프론트+백엔드 배포
+# 사용법: render.com → New → Blueprint → 이 저장소 선택
+services:
+  - type: web
+    name: dalmuti
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --frozen-lockfile && pnpm --filter @dalmuti/web build
+    startCommand: pnpm --filter @dalmuti/server start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      # 서버가 웹 빌드 산출물을 함께 서빙 (같은 오리진 → CORS 불필요)
+      - key: WEB_DIST
+        value: apps/web/dist
