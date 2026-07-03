@@ -57,6 +57,15 @@ export function pickCardsFromHand(
   return picked;
 }
 
+/** 손패에서 해당 id 카드들을 제거한 새 배열 (정렬 순서 유지) */
+export function removeCardsFromHand(
+  hand: readonly Card[],
+  cardIds: readonly string[],
+): Card[] {
+  const ids = new Set(cardIds);
+  return hand.filter((c) => !ids.has(c.id));
+}
+
 /**
  * 손패에서 필드를 이길 수 있는 모든 조합을 열거한다 (봇/힌트용).
  * field가 null이면 리드 상황: 낼 수 있는 모든 조합을 반환.

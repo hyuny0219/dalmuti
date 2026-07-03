@@ -19,7 +19,8 @@ export function createDeck(): Card[] {
 export function shuffle<T>(items: readonly T[], rng: () => number = Math.random): T[] {
   const arr = [...items];
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
+    // rng가 정확히 1을 반환해도 배열 범위를 벗어나지 않게 clamp
+    const j = Math.min(Math.floor(rng() * (i + 1)), i);
     const tmp = arr[i]!;
     arr[i] = arr[j]!;
     arr[j] = tmp;
@@ -27,11 +28,19 @@ export function shuffle<T>(items: readonly T[], rng: () => number = Math.random)
   return arr;
 }
 
-/** 한 장씩 순서대로 분배. 인원이 80의 약수가 아니면 앞 좌석이 1장 더 받을 수 있음 */
-export function deal(deck: readonly Card[], numPlayers: number): Card[][] {
+/**
+ * 한 장씩 순서대로 분배. 인원이 카드 수의 약수가 아니면 일부 좌석이 1장 더 받는다.
+ * firstSeat부터 분배를 시작하므로 추가 카드를 받는 좌석을 호출자가 돌릴 수 있다
+ * (고정하면 라운드 2+에서 항상 대달무티(좌석 0)에게 부담이 쏠린다).
+ */
+export function deal(
+  deck: readonly Card[],
+  numPlayers: number,
+  firstSeat = 0,
+): Card[][] {
   const hands: Card[][] = Array.from({ length: numPlayers }, () => []);
   deck.forEach((card, i) => {
-    hands[i % numPlayers]!.push(card);
+    hands[(firstSeat + i) % numPlayers]!.push(card);
   });
   return hands;
 }

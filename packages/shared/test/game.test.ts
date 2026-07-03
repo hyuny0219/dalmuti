@@ -132,7 +132,9 @@ describe('트릭 진행', () => {
     expect(game.pass('p3').trickWonBy).toBeNull();
     expect(game.pass('p4').trickWonBy).toBeNull();
     const result = game.pass('p1'); // p1도 패스 → p2가 트릭 승리
+    expect(result.trickEnded).toBe(true);
     expect(result.trickWonBy).toBe('p2');
+    expect(result.nextLeaderId).toBe('p2');
     expect(game.field).toBeNull();
     expect(game.currentPlayer?.id).toBe('p2');
     // 새 리드는 패스 불가
@@ -183,7 +185,9 @@ describe('완주와 라운드 종료', () => {
     game.pass('p2');
     game.pass('p3');
     const result = game.pass('p4'); // 주인(p1) 자리 도달 → 트릭 종료
-    expect(result.trickWonBy).toBe('p2');
+    expect(result.trickEnded).toBe(true);
+    expect(result.trickWonBy).toBe('p1'); // 트릭 승자는 완주한 p1
+    expect(result.nextLeaderId).toBe('p2'); // 리드는 다음 미완주자 p2
     expect(game.currentPlayer?.id).toBe('p2');
     expect(game.field).toBeNull();
   });
@@ -325,6 +329,70 @@ describe('혁명', () => {
   it('enableRevolution=false면 광대 2장을 들어도 세금으로 직행', () => {
     const game = toRevolution({ enableRevolution: false });
     expect(game.phase).toBe('TAXATION');
+  });
+});
+
+describe('검토 반영: 상태 보호와 이벤트', () => {
+  it('라운드 진행 중 startRound를 다시 호출하면 거부된다', () => {
+    const game = makeGame([ROUND1_HANDS]);
+    game.startRound();
+    game.play('p1', ['a1']); // 진행 중
+    expect(() => game.startRound()).toThrowError(
+      expect.objectContaining({ code: 'WRONG_PHASE' }),
+    );
+  });
+
+  it('getPublicState 스냅샷을 변조해도 엔진 내부가 오염되지 않는다', () => {
+    const game = makeGame([ROUND1_HANDS], { targetRounds: 5 });
+    game.startRound();
+    const state = game.getPublicState();
+    state.options.targetRounds = 1;
+    state.players[0]!.handCount = 0;
+    expect(game.options.targetRounds).toBe(5);
+    expect(game.getPublicState().players[0]!.handCount).toBe(2);
+  });
+
+  it('혁명 대기 중 공개 상태에 후보자가 노출된다 (재접속 UI용)', () => {
+    const REV_HANDS: Card[][] = [
+      [mkc('g1', 6), mkc('g2', 7)],
+      [mkc('h1', 6), mkc('h2', 7)],
+      [mkc('i1', 2), mkc('i2', 11)],
+      [mkc('j-1', 13), mkc('j-2', 13)],
+    ];
+    const game = makeGame([ROUND1_HANDS, REV_HANDS]);
+    playRound1(game);
+    game.startRound();
+    expect(game.getPublicState().revolutionCandidateId).toBe('p4');
+  });
+
+  it('이벤트 로그: 플레이/완주/트릭 승리/라운드 종료가 기록되고 drain 후 비워진다', () => {
+    const game = makeGame([ROUND1_HANDS]);
+    playRound1(game);
+    const events = game.drainEvents();
+    const types = events.map((e) => e.type);
+    expect(types).toContain('ROUND_STARTED');
+    expect(types).toContain('PLAYED');
+    expect(types).toContain('PLAYER_FINISHED');
+    expect(types).toContain('ROUND_ENDED');
+    expect(game.drainEvents()).toHaveLength(0);
+  });
+
+  it('세금 상납 이벤트에 카드 id가 기록된다 (서버 안내용)', () => {
+    const R2: Card[][] = [
+      [mkc('g1', 6), mkc('g2', 7), mkc('g3', 8)],
+      [mkc('h1', 6), mkc('h2', 7), mkc('h3', 8)],
+      [mkc('i1', 2), mkc('i2', 11), mkc('i3', 11)],
+      [mkc('k1', 1), mkc('k2', 12), mkc('k3', 12)],
+    ];
+    const game = makeGame([ROUND1_HANDS, R2]);
+    playRound1(game);
+    game.drainEvents();
+    game.startRound();
+    const tributes = game
+      .drainEvents()
+      .filter((e) => e.type === 'TAX_TRIBUTE');
+    expect(tributes).toHaveLength(2);
+    expect(tributes[0]).toMatchObject({ fromId: 'p4', toId: 'p1', cardIds: ['k1', 'k2'] });
   });
 });
 

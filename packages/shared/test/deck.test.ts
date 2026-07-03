@@ -56,6 +56,22 @@ describe('deal', () => {
       expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
     }
   });
+
+  it('firstSeat부터 분배해 추가 카드를 받는 좌석을 돌릴 수 있다', () => {
+    // 6인: 80 = 6*13 + 2 → 2개 좌석이 14장을 받는다
+    const seat0 = deal(createDeck(), 6, 0).map((h) => h.length);
+    expect(seat0).toEqual([14, 14, 13, 13, 13, 13]);
+    const seat3 = deal(createDeck(), 6, 3).map((h) => h.length);
+    expect(seat3).toEqual([13, 13, 13, 14, 14, 13]);
+  });
+});
+
+describe('shuffle 경계값', () => {
+  it('rng가 1을 반환해도 카드가 유실되지 않는다', () => {
+    const shuffled = shuffle(createDeck(), () => 1);
+    expect(shuffled).toHaveLength(TOTAL_CARDS);
+    expect(shuffled.every((c) => c !== undefined)).toBe(true);
+  });
 });
 
 describe('sortHand', () => {

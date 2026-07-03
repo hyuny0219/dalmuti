@@ -2,7 +2,8 @@ export const JESTER_RANK = 13;
 export const MIN_RANK = 1;
 export const MAX_RANK = 12;
 export const JESTER_COUNT = 2;
-export const TOTAL_CARDS = 80; // 1+2+...+12 = 78 + 광대 2장
+/** 1+2+...+MAX_RANK + 광대 = 80장. 상수 튜닝 시에도 어긋나지 않게 계산식으로 유지 */
+export const TOTAL_CARDS = (MAX_RANK * (MAX_RANK + 1)) / 2 + JESTER_COUNT;
 
 export const MIN_PLAYERS = 4;
 export const MAX_PLAYERS = 8;

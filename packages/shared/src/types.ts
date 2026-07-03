@@ -27,7 +27,11 @@ export type GameOptions = {
   enableTaxation: boolean;
   /** 이 라운드 수가 끝나면 게임 종료 */
   targetRounds: number;
-  /** 턴 시간 제한(초). null이면 무제한 */
+  /**
+   * 턴 시간 제한(초). null이면 무제한.
+   * 주의: 엔진은 타이머를 전혀 모른다 — 시간 초과 시 자동 패스는
+   * 서버 계층이 이 값을 읽어 직접 구현해야 한다.
+   */
   turnTimeLimitSec: number | null;
 };
 
@@ -69,10 +73,36 @@ export type GamePublicState = {
   currentTurnPlayerId: string | null;
   field: FieldState | null;
   revolution: { declaredById: string | null; isGreat: boolean } | null;
+  /** REVOLUTION 단계에서 선언 여부를 결정 중인 플레이어 (그 외엔 null) */
+  revolutionCandidateId: string | null;
   /** 세금 단계에서 아직 카드를 내야 하는 플레이어 id 목록 */
   taxationPendingIds: string[];
   options: GameOptions;
 };
+
+/**
+ * 엔진이 상태 전이 중 기록하는 이벤트.
+ * 서버가 drainEvents()로 꺼내 시스템 메시지/애니메이션 브로드캐스트를 만든다.
+ * 주의: TAX_TRIBUTE/TAX_RETURN의 cardIds는 당사자 외 비공개 정보 —
+ * 서버는 제3자에게 장수만 공개해야 한다.
+ */
+export type GameEvent =
+  | { type: 'ROUND_STARTED'; round: number }
+  | { type: 'REVOLUTION_PENDING'; playerId: string }
+  | { type: 'REVOLUTION_DECLARED'; playerId: string; isGreat: boolean }
+  | { type: 'REVOLUTION_DECLINED'; playerId: string }
+  | { type: 'TAX_TRIBUTE'; fromId: string; toId: string; cardIds: string[] }
+  | { type: 'TAX_RETURN'; fromId: string; toId: string; cardIds: string[] }
+  | { type: 'PLAYED'; playerId: string; cards: Card[] }
+  | { type: 'PASSED'; playerId: string }
+  | { type: 'TRICK_WON'; playerId: string; nextLeaderId: string }
+  | { type: 'PLAYER_FINISHED'; playerId: string; place: number }
+  | {
+      type: 'ROUND_ENDED';
+      round: number;
+      placements: Array<{ playerId: string; place: number; rank: SocialRank }>;
+    }
+  | { type: 'GAME_ENDED'; round: number };
 
 export type ChatMessage = {
   id: string;
