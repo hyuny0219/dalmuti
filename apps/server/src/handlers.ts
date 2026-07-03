@@ -428,6 +428,22 @@ export class GameGateway {
     const { room, memberId } = ctx;
     if (memberId !== room.hostId) return ack(fail('NOT_HOST', '방장만 시작할 수 있습니다'));
     if (room.isInGame) return ack(fail('GAME_ALREADY_STARTED', '게임이 이미 시작됐습니다'));
+
+    // 재대결(GAME_END 후 재시작) 시, 지난 게임 중 이탈한 채 돌아오지 않은
+    // 사람은 명단에서 제외한다 — 그대로 넘기면 새 엔진이 전원을 접속 중으로
+    // 취급해 소켓 없는 유령 좌석이 생긴다
+    const departed = room.members.filter((m) => !m.isBot && !m.connected);
+    if (departed.length > 0) {
+      room.members = room.members.filter((m) => m.isBot || m.connected);
+      for (const d of departed) {
+        room.forgetChatRate(d.id);
+        this.pushChat(
+          room,
+          systemMessage(`${d.nickname}님은 자리를 비워 새 게임에서 제외됩니다.`),
+        );
+      }
+    }
+
     if (room.members.length < MIN_PLAYERS) {
       return ack(fail('NOT_ENOUGH_PLAYERS', `최소 ${MIN_PLAYERS}명이 필요합니다`));
     }

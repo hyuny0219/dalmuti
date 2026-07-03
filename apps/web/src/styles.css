@@ -157,6 +157,19 @@ select {
 .home-rejoining {
   opacity: 0.85;
 }
+.home-resume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  background: rgba(224, 168, 50, 0.15);
+  border: 1px solid rgba(224, 168, 50, 0.5);
+  border-radius: 12px;
+  padding: 12px 18px;
+  margin-bottom: 18px;
+  font-size: 0.92rem;
+}
 
 /* ── 로비 ─────────────────────────────────────── */
 .lobby {

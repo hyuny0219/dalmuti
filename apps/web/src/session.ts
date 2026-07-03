@@ -4,6 +4,12 @@ export type SavedSession = {
   sessionToken: string;
   playerId: string;
   nickname: string;
+  /**
+   * 게임 중 "나가기"로 자발적으로 떠난 상태.
+   * 서버는 좌석을 보존하므로 세션은 지우지 않되, 자동 복귀는 하지 않고
+   * 홈 화면에서 수동 복귀 버튼을 보여주는 데 사용한다.
+   */
+  leftVoluntarily?: boolean;
 };
 
 const KEY = 'dalmuti.session';
@@ -27,6 +33,12 @@ export function loadSession(): SavedSession | null {
   } catch {
     return null;
   }
+}
+
+/** 게임 중 자발적 이탈 표시 — 세션은 남기되 자동 복귀를 막는다 */
+export function markSessionLeft(): void {
+  const session = loadSession();
+  if (session) saveSession({ ...session, leftVoluntarily: true });
 }
 
 export function clearSession(): void {

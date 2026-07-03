@@ -14,6 +14,7 @@ import { call, socket } from './socket';
 import {
   clearSession,
   loadSession,
+  markSessionLeft,
   saveNickname,
   saveSession,
   type SavedSession,
@@ -108,8 +109,16 @@ export const useStore = create<Store>((set, get) => {
         sessionToken: saved.sessionToken,
       });
       if (res.ok) {
+        // 복귀 성공 — 자발적 이탈 플래그 해제
+        const restored: SavedSession = {
+          roomCode: saved.roomCode,
+          sessionToken: saved.sessionToken,
+          playerId: saved.playerId,
+          nickname: saved.nickname,
+        };
+        saveSession(restored);
         set({
-          me: saved,
+          me: restored,
           room: res.data.room,
           game: res.data.game,
           chat: res.data.chatHistory,
@@ -126,7 +135,17 @@ export const useStore = create<Store>((set, get) => {
       // 오프라인 상태에서도 즉시 나가져야 하므로 서버 응답을 기다리지 않는다
       // (서버는 ack와 무관하게 disconnect로도 동일하게 정리한다)
       void call('room:leave');
-      clearSession();
+      const { room, game } = get();
+      const midGame =
+        room?.phase === 'IN_GAME' && game !== null && game.phase !== 'GAME_END';
+      if (midGame) {
+        // 서버가 좌석을 보존하는 경우이므로 세션 토큰도 보존한다 —
+        // 지우면 "재접속으로 복귀 가능" 안내와 달리 영영 복귀할 수 없다.
+        // 자동 복귀만 막고(플래그), 홈 화면에서 수동 복귀 버튼을 제공한다.
+        markSessionLeft();
+      } else {
+        clearSession();
+      }
       set({
         me: null,
         room: null,
@@ -219,10 +238,12 @@ export const useStore = create<Store>((set, get) => {
 
 socket.on('connect', () => {
   useStore.setState({ connected: true });
-  // 저장된 세션이 있으면 무조건 복귀를 시도한다.
+  // 저장된 세션이 있으면 복귀를 시도한다.
   // 순간적인 재연결에서도 서버의 새 소켓은 방에 바인딩돼 있지 않으므로
   // (store에 room이 남아 있더라도) rejoin으로 다시 묶어야 한다.
-  if (loadSession()) void useStore.getState().rejoin();
+  // 단, 게임 중 "나가기"로 자발적으로 떠난 세션은 자동 복귀하지 않는다.
+  const saved = loadSession();
+  if (saved && !saved.leftVoluntarily) void useStore.getState().rejoin();
 });
 
 socket.on('disconnect', () => {
