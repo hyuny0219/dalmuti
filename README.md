@@ -47,16 +47,32 @@ pnpm -r typecheck   # 타입 검사
 | 변수 | 대상 | 설명 | 기본값 |
 |---|---|---|---|
 | `PORT` | server | 서버 포트 | `3001` |
-| `CORS_ORIGIN` | server | 허용 오리진(콤마 구분). **운영(NODE_ENV=production)에서는 필수** — 미설정 시 기동 실패 | 개발: 전체 허용 |
+| `CORS_ORIGIN` | server | 허용 오리진(콤마 구분). **분리 배포 운영에서는 필수** — 미설정 시 기동 실패 (`WEB_DIST` 단일 서비스 모드는 예외) | 개발: 전체 허용 |
+| `WEB_DIST` | server | 웹 빌드 산출물 경로 — 설정 시 서버가 정적 파일까지 서빙 (단일 서비스 배포) | 미설정 |
 | `BOT_DELAY_MS` | server | 봇 행동 지연 고정(테스트용) | 600~1500ms 랜덤 |
 | `ROUND_ADVANCE_MS` | server | 라운드 종료 후 자동 진행 대기 | `12000` |
 | `VITE_SERVER_URL` | web | 게임 서버 주소 | `http://localhost:3001` |
 
-## 배포 메모
+## 배포
+
+### 무료 배포 (Render, 권장 — 서비스 1개로 전부)
+
+`WEB_DIST`를 설정하면 게임 서버가 웹 빌드 산출물까지 함께 서빙한다
+(같은 오리진이라 CORS 설정도 불필요). 저장소에 [render.yaml](./render.yaml)
+블루프린트가 포함돼 있어 클릭 몇 번이면 된다:
+
+1. https://render.com 에 GitHub 계정으로 로그인
+2. **New → Blueprint** → 이 저장소 선택 (브랜치 지정 가능)
+3. 배포 완료 후 발급된 `https://dalmuti-xxxx.onrender.com` 접속
+
+무료 티어 특성: 15분간 트래픽이 없으면 잠들고 첫 접속 시 깨어나는 데 ~1분 걸린다.
+방/게임 상태는 인메모리라 재시작·슬립 시 진행 중 게임은 사라진다.
+
+### 분리 배포 (프론트/백엔드 따로)
 
 - **웹**: `pnpm --filter @dalmuti/web build` → `apps/web/dist` 정적 호스팅 (Vercel/Netlify).
-  빌드 시 `VITE_SERVER_URL`에 서버 주소 주입
+  빌드 시 `VITE_SERVER_URL`에 서버 주소 주입 (미주입 시 페이지와 같은 오리진 사용)
 - **서버**: Node 22+ 단일 프로세스, `pnpm --filter @dalmuti/server start` (tsx 런타임).
-  `/healthz`가 `{ ok, rooms }`를 반환하므로 로드밸런서 헬스체크/모니터링에 사용
-- 방/게임 상태는 인메모리 — 서버 재시작 시 진행 중 게임은 사라진다
-  (수평 확장·영속화가 필요해지면 PLAN.md 검토 백로그의 Redis/직렬화 항목 참고)
+  운영에서는 `CORS_ORIGIN`에 웹 도메인을 반드시 지정.
+  `/healthz`가 `{ ok, rooms }`를 반환하므로 헬스체크/모니터링에 사용
+- 수평 확장·영속화가 필요해지면 PLAN.md 검토 백로그의 Redis/직렬화 항목 참고

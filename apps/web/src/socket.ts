@@ -7,8 +7,11 @@ import type {
 
 export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
+// 서버 주소 우선순위: 빌드 시 주입된 VITE_SERVER_URL → (개발) localhost:3001
+// → (운영) 페이지와 같은 오리진 (서버가 웹을 함께 서빙하는 단일 서비스 배포)
 const SERVER_URL: string =
-  (import.meta.env.VITE_SERVER_URL as string | undefined) ?? 'http://localhost:3001';
+  (import.meta.env.VITE_SERVER_URL as string | undefined) ??
+  (import.meta.env.DEV ? 'http://localhost:3001' : window.location.origin);
 
 export const socket: AppSocket = io(SERVER_URL, {
   transports: ['websocket', 'polling'],
