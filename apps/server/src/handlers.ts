@@ -200,7 +200,10 @@ export class GameGateway {
       typeof payload?.sessionToken === 'string'
         ? room.findByToken(payload.sessionToken)
         : undefined;
-    if (!member) return ack(fail('INVALID_SESSION', '세션이 유효하지 않습니다'));
+    if (!member || member.isBot) {
+      // 봇 좌석은 사람이 차지할 수 없다 (토큰이 유출돼도 방어)
+      return ack(fail('INVALID_SESSION', '세션이 유효하지 않습니다'));
+    }
     if (getCtx(socket, this.rooms)) {
       return ack(fail('ALREADY_IN_ROOM', '이미 방에 연결되어 있습니다'));
     }
@@ -277,6 +280,11 @@ export class GameGateway {
     member.connected = false;
     member.socketId = null;
     room.game?.setConnected(memberId, false);
+    // 마지막 사람이 떠났다면 이미 예약된 봇 행동도 즉시 멈춘다
+    if (room.members.every((m) => m.isBot || !m.connected) && room.botTimer) {
+      clearTimeout(room.botTimer);
+      room.botTimer = null;
+    }
     socket.leave(room.code);
     (socket.data as SocketData).roomCode = undefined;
     (socket.data as SocketData).playerId = undefined;
@@ -637,6 +645,8 @@ export class GameGateway {
     const game = room.game;
     const actor = this.pendingBotActor(room);
     if (!game || !actor) return;
+    // 타이머 예약 이후 사람이 모두 떠났을 수 있다 — scheduleBots와 같은 기준으로 재확인
+    if (room.members.every((m) => m.isBot || !m.connected)) return;
 
     const strategy = createBotStrategy(actor.botDifficulty ?? 'normal');
     const pub = game.getPublicState();
@@ -644,7 +654,7 @@ export class GameGateway {
       myId: actor.id,
       myRank: pub.players.find((p) => p.id === actor.id)?.rank ?? null,
       hand: game.getHandOf(actor.id),
-      field: game.field,
+      field: pub.field, // 공개 스냅샷의 복사본 — 엔진 내부 참조를 넘기지 않는다
       players: pub.players,
       playedRankCounts: { ...room.playedRankCounts },
     };
@@ -661,7 +671,8 @@ export class GameGateway {
         else game.pass(actor.id);
       }
     } catch (e) {
-      // 전략 버그로 게임 전체가 멈추지 않도록 폴백 (패스, 리드면 첫 유효 수)
+      // 전략 버그로 게임 전체가 멈추지 않도록 모든 단계에 폴백을 둔다.
+      // (폴백이 없으면 scheduleBots가 같은 봇을 계속 재시도하며 방이 교착된다)
       console.error(`[bot] ${actor.nickname} 행동 실패, 폴백 시도:`, e);
       try {
         if (game.phase === 'PLAYING') {
@@ -671,6 +682,13 @@ export class GameGateway {
             const combos = enumeratePlayableCombos(game.getHandOf(actor.id), null);
             if (combos[0]) game.play(actor.id, combos[0].map((c) => c.id));
           }
+        } else if (game.phase === 'TAXATION') {
+          // 아무 카드나 정확한 장수만큼 반환 (항상 유효)
+          const count = game.getPendingTaxReturn(actor.id)?.count ?? 1;
+          const ids = game.getHandOf(actor.id).slice(0, count).map((c) => c.id);
+          game.payTaxReturn(actor.id, ids);
+        } else if (game.phase === 'REVOLUTION') {
+          game.declareRevolution(actor.id, false);
         }
       } catch (fallbackError) {
         console.error('[bot] 폴백도 실패 — 게임이 멈출 수 있습니다:', fallbackError);

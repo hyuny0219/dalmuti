@@ -160,9 +160,10 @@ export function createBotMember(
   difficulty: BotDifficulty,
   takenNicknames: readonly string[],
 ): RoomMember {
-  const base =
-    BOT_NAME_POOL.find((n) => !takenNicknames.includes(n)) ??
-    `봇-${Math.floor(Math.random() * 1000)}`;
+  let base = BOT_NAME_POOL.find((n) => !takenNicknames.includes(n));
+  while (!base || takenNicknames.includes(base)) {
+    base = `봇-${Math.floor(Math.random() * 1000)}`;
+  }
   return {
     id: randomUUID(),
     nickname: base,
