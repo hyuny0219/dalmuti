@@ -43,6 +43,8 @@ export function ChatPanel() {
     if (await sendChat(input)) setInput('');
   };
 
+  const QUICK_CHATS = ['빨리요~ ⏰', '굿플레이! 👍', 'ㅋㅋㅋ', '아깝다!', '좋은 게임! 🙌'];
+
   return (
     <div className={`chat-panel ${collapsed ? 'chat-collapsed' : ''}`}>
       <button
@@ -74,6 +76,18 @@ export function ChatPanel() {
               ),
             )}
             {chat.length === 0 && <div className="chat-empty">아직 메시지가 없습니다</div>}
+          </div>
+          <div className="chat-quick-row">
+            {QUICK_CHATS.map((text) => (
+              <button
+                key={text}
+                type="button"
+                className="chat-quick"
+                onClick={() => void sendChat(text)}
+              >
+                {text}
+              </button>
+            ))}
           </div>
           <div className="chat-input-row">
             <input

@@ -29,6 +29,9 @@ type Store = {
   pendingTaxReturnCount: number | null;
   chat: ChatMessage[];
   selected: string[];
+  /** 턴 제한 마감 시각(epoch ms)과 대상 플레이어 */
+  turnDeadlineAt: number | null;
+  turnTimerPlayerId: string | null;
   /** 화면 상단 토스트로 보여줄 오류 */
   error: string | null;
 
@@ -77,6 +80,8 @@ export const useStore = create<Store>((set, get) => {
     pendingTaxReturnCount: null,
     chat: [],
     selected: [],
+    turnDeadlineAt: null,
+    turnTimerPlayerId: null,
     error: null,
 
     async createRoom(nickname) {
@@ -250,6 +255,10 @@ socket.on('game:hand', ({ cards, pendingTaxReturnCount }) => {
 
 socket.on('chat:message', (message: ChatMessage) => {
   useStore.setState((s) => ({ chat: [...s.chat.slice(-199), message] }));
+});
+
+socket.on('game:timer', ({ deadlineAt, playerId }) => {
+  useStore.setState({ turnDeadlineAt: deadlineAt, turnTimerPlayerId: playerId });
 });
 
 socket.on('game:event', (_event: PublicGameEvent) => {

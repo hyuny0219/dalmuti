@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   analyzeCombo,
   canBeat,
@@ -50,6 +50,7 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
           <span>
             라운드 {game.round}/{game.targetRounds}
           </span>
+          <TurnCountdown myId={myId} />
           <span className="game-room-code">방 {room.code}</span>
           <button
             type="button"
@@ -364,4 +365,30 @@ function PhaseOverlay({ game, myId }: { game: GamePublicState; myId: string }) {
 
 function nickOf(game: GamePublicState, playerId: string | null): string {
   return game.players.find((p) => p.id === playerId)?.nickname ?? '???';
+}
+
+/** 턴 제한 카운트다운 — 서버 game:timer 이벤트 기반 */
+function TurnCountdown({ myId }: { myId: string }) {
+  const deadlineAt = useStore((s) => s.turnDeadlineAt);
+  const timerPlayerId = useStore((s) => s.turnTimerPlayerId);
+  const [remaining, setRemaining] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!deadlineAt) {
+      setRemaining(null);
+      return;
+    }
+    const tick = () => setRemaining(Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000)));
+    tick();
+    const interval = setInterval(tick, 500);
+    return () => clearInterval(interval);
+  }, [deadlineAt]);
+
+  if (remaining === null || timerPlayerId === null) return null;
+  const mine = timerPlayerId === myId;
+  return (
+    <span className={`turn-countdown ${mine && remaining <= 10 ? 'countdown-urgent' : ''}`}>
+      ⏰ {remaining}초
+    </span>
+  );
 }

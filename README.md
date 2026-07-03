@@ -1,0 +1,62 @@
+# 👑 달무티 온라인 (The Great Dalmuti Online)
+
+중세 신분제 카드게임 **달무티**를 브라우저에서 실시간 멀티플레이로 즐길 수 있는 웹 게임.
+
+- 4~8인 실시간 멀티플레이 (방 코드로 입장)
+- 부족한 인원은 **난이도 선택 가능한 AI 봇**(🟢쉬움/🟡보통/🔴어려움)으로 충원
+- 세금·혁명·대혁명 등 정식 규칙 + 방 옵션(라운드 수, 규칙 토글, 턴 제한)
+- 채팅(시스템 메시지/퀵챗/도배 방지), 재접속 복구, 턴 타이머 자동 처리
+
+설계 문서와 단계별 구현 로드맵은 [PLAN.md](./PLAN.md) 참고.
+
+## 구조 (pnpm 모노레포)
+
+```
+packages/shared   # 게임 엔진(규칙/상태 머신/봇 전략) + 소켓 프로토콜 타입 — 서버/클라 공용
+apps/server       # Socket.IO 게임 서버 (서버 권위, 인메모리 방 관리)
+apps/web          # React + Vite 클라이언트
+```
+
+## 실행 방법
+
+```bash
+pnpm install
+
+# 터미널 1: 게임 서버 (기본 :3001)
+pnpm dev:server
+
+# 터미널 2: 웹 클라이언트 (기본 :5173)
+pnpm dev:web
+```
+
+브라우저에서 http://localhost:5173 접속 → 닉네임 입력 → 방 만들기 →
+다른 브라우저(시크릿 창)에서 방 코드로 참가하거나 로비에서 봇을 추가해 시작.
+
+## 테스트
+
+```bash
+pnpm -r test        # 전체 (엔진 단위 61 + 서버 통합 13)
+pnpm -r typecheck   # 타입 검사
+```
+
+- `packages/shared`: 덱/규칙/엔진 단위 테스트, 봇 자동 대전 시뮬레이션(난이도 서열 검증)
+- `apps/server`: 실제 소켓 클라이언트로 로비/게임/채팅/재접속/봇/턴 타이머 통합 테스트
+
+## 환경 변수
+
+| 변수 | 대상 | 설명 | 기본값 |
+|---|---|---|---|
+| `PORT` | server | 서버 포트 | `3001` |
+| `CORS_ORIGIN` | server | 허용 오리진(콤마 구분). **운영(NODE_ENV=production)에서는 필수** — 미설정 시 기동 실패 | 개발: 전체 허용 |
+| `BOT_DELAY_MS` | server | 봇 행동 지연 고정(테스트용) | 600~1500ms 랜덤 |
+| `ROUND_ADVANCE_MS` | server | 라운드 종료 후 자동 진행 대기 | `12000` |
+| `VITE_SERVER_URL` | web | 게임 서버 주소 | `http://localhost:3001` |
+
+## 배포 메모
+
+- **웹**: `pnpm --filter @dalmuti/web build` → `apps/web/dist` 정적 호스팅 (Vercel/Netlify).
+  빌드 시 `VITE_SERVER_URL`에 서버 주소 주입
+- **서버**: Node 22+ 단일 프로세스, `pnpm --filter @dalmuti/server start` (tsx 런타임).
+  `/healthz`가 `{ ok, rooms }`를 반환하므로 로드밸런서 헬스체크/모니터링에 사용
+- 방/게임 상태는 인메모리 — 서버 재시작 시 진행 중 게임은 사라진다
+  (수평 확장·영속화가 필요해지면 PLAN.md 검토 백로그의 Redis/직렬화 항목 참고)

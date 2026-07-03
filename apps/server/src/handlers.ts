@@ -595,6 +595,105 @@ export class GameGateway {
       if (text) this.pushChat(room, systemMessage(text));
     }
     this.scheduleBots(room);
+    this.manageTurnTimer(room);
+    this.manageRoundAdvance(room);
+  }
+
+  // ── 턴 타이머 / 라운드 자동 진행 ─────────────────────────────
+
+  /** 사람 액터가 제한 시간 안에 행동하지 않으면 자동 처리 (이탈/잠수로 게임이 멈추지 않게) */
+  private manageTurnTimer(room: Room): void {
+    const clear = (notify: boolean) => {
+      if (room.turnTimer) {
+        clearTimeout(room.turnTimer);
+        room.turnTimer = null;
+      }
+      room.turnActorId = null;
+      if (room.turnDeadlineAt !== null) {
+        room.turnDeadlineAt = null;
+        if (notify) {
+          this.io.to(room.code).emit('game:timer', { deadlineAt: null, playerId: null });
+        }
+      }
+    };
+
+    const game = room.game;
+    const limitSec = room.options.turnTimeLimitSec;
+    if (!game || !limitSec) return clear(true);
+    const actor = this.pendingActor(room);
+    if (!actor || actor.isBot) return clear(true);
+
+    // 모든 액션(pump)마다 시계를 새로 감는다
+    clear(false);
+    room.turnActorId = actor.id;
+    room.turnDeadlineAt = Date.now() + limitSec * 1000;
+    this.io
+      .to(room.code)
+      .emit('game:timer', { deadlineAt: room.turnDeadlineAt, playerId: actor.id });
+    room.turnTimer = setTimeout(() => {
+      room.turnTimer = null;
+      this.onTurnTimeout(room, actor.id);
+    }, limitSec * 1000);
+  }
+
+  private onTurnTimeout(room: Room, actorId: string): void {
+    const game = room.game;
+    const actor = this.pendingActor(room);
+    if (!game || !actor || actor.id !== actorId || actor.isBot) return;
+    this.pushChat(
+      room,
+      systemMessage(`⏰ ${actor.nickname}님의 시간이 초과되어 자동으로 처리합니다.`),
+    );
+    this.performFallbackAction(room, actor.id);
+    this.pump(room);
+  }
+
+  /** 라운드가 끝나면 잠시 후 자동으로 다음 라운드 시작 (방장이 없어도 진행) */
+  private manageRoundAdvance(room: Room): void {
+    const game = room.game;
+    if (game?.phase === 'ROUND_END') {
+      if (room.roundAdvanceTimer) return;
+      const delay = Number(process.env.ROUND_ADVANCE_MS ?? '') || 12_000;
+      room.roundAdvanceTimer = setTimeout(() => {
+        room.roundAdvanceTimer = null;
+        try {
+          if (room.game?.phase === 'ROUND_END') {
+            room.game.startRound();
+            this.pump(room);
+          }
+        } catch (e) {
+          console.error('[round] 자동 진행 실패:', e);
+        }
+      }, delay);
+    } else if (room.roundAdvanceTimer) {
+      // 방장이 먼저 진행했거나 게임이 끝남
+      clearTimeout(room.roundAdvanceTimer);
+      room.roundAdvanceTimer = null;
+    }
+  }
+
+  /** 시간 초과/봇 오류 공용 폴백: 패스(리드면 첫 유효 수) / 자동 반환 / 혁명 포기 */
+  private performFallbackAction(room: Room, actorId: string): void {
+    const game = room.game;
+    if (!game) return;
+    try {
+      if (game.phase === 'PLAYING') {
+        if (game.field) {
+          game.pass(actorId);
+        } else {
+          const combos = enumeratePlayableCombos(game.getHandOf(actorId), null);
+          if (combos[0]) game.play(actorId, combos[0].map((c) => c.id));
+        }
+      } else if (game.phase === 'TAXATION') {
+        const count = game.getPendingTaxReturn(actorId)?.count ?? 1;
+        const ids = game.getHandOf(actorId).slice(0, count).map((c) => c.id);
+        game.payTaxReturn(actorId, ids);
+      } else if (game.phase === 'REVOLUTION') {
+        game.declareRevolution(actorId, false);
+      }
+    } catch (e) {
+      console.error('[fallback] 자동 처리 실패 — 게임이 멈출 수 있습니다:', e);
+    }
   }
 
   // ── 봇 실행 ─────────────────────────────────────────────────
@@ -616,29 +715,31 @@ export class GameGateway {
     }, botDelayMs());
   }
 
-  /** 현재 단계에서 행동이 필요한 봇 멤버 */
-  private pendingBotActor(room: Room): RoomMember | null {
+  /** 현재 단계에서 행동이 필요한 멤버 (봇/사람 무관) */
+  private pendingActor(room: Room): RoomMember | null {
     const game = room.game;
     if (!game) return null;
-    const botOf = (id: string | null | undefined): RoomMember | null => {
-      const m = id ? room.findById(id) : undefined;
-      return m?.isBot ? m : null;
-    };
+    const memberOf = (id: string | null | undefined): RoomMember | null =>
+      (id ? room.findById(id) : undefined) ?? null;
     switch (game.phase) {
       case 'PLAYING':
-        return botOf(game.currentPlayer?.id);
+        return memberOf(game.currentPlayer?.id);
       case 'REVOLUTION':
-        return botOf(game.getRevolutionCandidateId());
+        return memberOf(game.getRevolutionCandidateId());
       case 'TAXATION': {
-        for (const id of game.getPublicState().taxationPendingIds) {
-          const bot = botOf(id);
-          if (bot) return bot;
-        }
-        return null;
+        // 봇 반환이 먼저 처리되도록 봇 우선, 없으면 첫 대기자(사람)
+        const pending = game.getPublicState().taxationPendingIds;
+        const bot = pending.map(memberOf).find((m) => m?.isBot);
+        return bot ?? memberOf(pending[0]);
       }
       default:
-        return null; // ROUND_END/GAME_END 진행은 방장(사람) 몫
+        return null; // ROUND_END/GAME_END는 자동 진행 타이머/방장 몫
     }
+  }
+
+  private pendingBotActor(room: Room): RoomMember | null {
+    const actor = this.pendingActor(room);
+    return actor?.isBot ? actor : null;
   }
 
   private runBotAction(room: Room): void {
@@ -674,25 +775,7 @@ export class GameGateway {
       // 전략 버그로 게임 전체가 멈추지 않도록 모든 단계에 폴백을 둔다.
       // (폴백이 없으면 scheduleBots가 같은 봇을 계속 재시도하며 방이 교착된다)
       console.error(`[bot] ${actor.nickname} 행동 실패, 폴백 시도:`, e);
-      try {
-        if (game.phase === 'PLAYING') {
-          if (game.field) {
-            game.pass(actor.id);
-          } else {
-            const combos = enumeratePlayableCombos(game.getHandOf(actor.id), null);
-            if (combos[0]) game.play(actor.id, combos[0].map((c) => c.id));
-          }
-        } else if (game.phase === 'TAXATION') {
-          // 아무 카드나 정확한 장수만큼 반환 (항상 유효)
-          const count = game.getPendingTaxReturn(actor.id)?.count ?? 1;
-          const ids = game.getHandOf(actor.id).slice(0, count).map((c) => c.id);
-          game.payTaxReturn(actor.id, ids);
-        } else if (game.phase === 'REVOLUTION') {
-          game.declareRevolution(actor.id, false);
-        }
-      } catch (fallbackError) {
-        console.error('[bot] 폴백도 실패 — 게임이 멈출 수 있습니다:', fallbackError);
-      }
+      this.performFallbackAction(room, actor.id);
     }
     this.pump(room); // pump 끝에서 다음 봇이 다시 예약된다
   }

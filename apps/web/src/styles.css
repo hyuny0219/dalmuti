@@ -689,6 +689,37 @@ select {
   font-size: 0.8rem;
   margin-top: 12px;
 }
+.chat-quick-row {
+  display: flex;
+  gap: 5px;
+  padding: 6px 8px 0;
+  flex-wrap: wrap;
+}
+.chat-quick {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--text-light);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  padding: 3px 10px;
+}
+.chat-quick:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.turn-countdown {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.countdown-urgent {
+  background: var(--danger);
+  color: #fff;
+  font-weight: 800;
+}
+
 .chat-input-row {
   display: flex;
   gap: 6px;
@@ -725,6 +756,7 @@ select {
     max-height: none;
   }
   .chat-collapsed .chat-list,
+  .chat-collapsed .chat-quick-row,
   .chat-collapsed .chat-input-row {
     display: none;
   }

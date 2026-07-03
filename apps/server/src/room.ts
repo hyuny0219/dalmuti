@@ -34,6 +34,12 @@ export class Room {
   lastActivityAt = Date.now();
   /** 예약된 봇 행동 타이머 (방 삭제 시 반드시 해제) */
   botTimer: NodeJS.Timeout | null = null;
+  /** 사람 플레이어의 턴 제한 타이머 */
+  turnTimer: NodeJS.Timeout | null = null;
+  turnDeadlineAt: number | null = null;
+  turnActorId: string | null = null;
+  /** 라운드 종료 후 자동 진행 타이머 */
+  roundAdvanceTimer: NodeJS.Timeout | null = null;
   /** 이번 라운드에 공개된 카드의 숫자별 장수 (hard 봇 카운팅용) */
   playedRankCounts: Record<number, number> = {};
   private chatTimestamps = new Map<string, number[]>();
@@ -91,6 +97,14 @@ export class Room {
     if (this.botTimer) {
       clearTimeout(this.botTimer);
       this.botTimer = null;
+    }
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+    }
+    if (this.roundAdvanceTimer) {
+      clearTimeout(this.roundAdvanceTimer);
+      this.roundAdvanceTimer = null;
     }
   }
 

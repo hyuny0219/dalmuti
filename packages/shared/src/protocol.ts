@@ -99,6 +99,11 @@ export type ServerToClientEvents = {
     pendingTaxReturnCount: number | null;
   }) => void;
   'game:event': (event: PublicGameEvent) => void;
+  /**
+   * 턴 타이머 상태. deadlineAt(epoch ms)까지 playerId가 행동하지 않으면
+   * 서버가 자동 처리(패스/자동 반환/혁명 포기)한다. null이면 타이머 없음.
+   */
+  'game:timer': (payload: { deadlineAt: number | null; playerId: string | null }) => void;
   'chat:message': (message: ChatMessage) => void;
 };
 
