@@ -302,6 +302,17 @@ select {
   border-color: var(--accent);
   box-shadow: 0 0 14px rgba(224, 168, 50, 0.5);
 }
+.seat-turn-label {
+  display: inline-block;
+  margin-left: 6px;
+  background: var(--accent);
+  color: #3a2b00;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 1px 8px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
 .seat-disconnected {
   opacity: 0.45;
 }
@@ -414,6 +425,15 @@ select {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.07); }
 }
+@media (prefers-reduced-motion: reduce) {
+  .turn-indicator {
+    animation: none;
+  }
+  .card,
+  .card-clickable:hover {
+    transition: none;
+  }
+}
 .my-score {
   font-size: 0.85rem;
   opacity: 0.8;
@@ -457,16 +477,21 @@ select {
 .card:disabled {
   cursor: default;
 }
-.card-clickable:hover {
-  transform: translateY(-6px);
+/* 터치 기기에서 탭 후 hover가 눌러붙는 문제 방지: 진짜 포인터에서만 hover 효과 */
+@media (hover: hover) {
+  .card-clickable:hover {
+    transform: translateY(-6px);
+  }
 }
 .card-selected {
   transform: translateY(-12px);
   border-color: var(--accent-dark);
   box-shadow: 0 0 0 2.5px var(--accent), 0 6px 12px rgba(0, 0, 0, 0.35);
 }
-.card-selected.card-clickable:hover {
-  transform: translateY(-12px);
+@media (hover: hover) {
+  .card-selected.card-clickable:hover {
+    transform: translateY(-12px);
+  }
 }
 .card-rank {
   font-size: 1.5rem;

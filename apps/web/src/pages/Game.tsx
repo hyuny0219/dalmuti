@@ -51,7 +51,15 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
             라운드 {game.round}/{game.targetRounds}
           </span>
           <span className="game-room-code">방 {room.code}</span>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void leaveRoom()}>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              if (window.confirm('게임에서 나갈까요? 세션이 유지되어 다시 접속하면 복귀할 수 있습니다.')) {
+                void leaveRoom();
+              }
+            }}
+          >
             나가기
           </button>
         </header>
@@ -167,6 +175,7 @@ function OpponentSeat({ player, isTurn }: { player: PlayerPublic; isTurn: boolea
       <div className="seat-name">
         {player.nickname}
         {player.isBot && ' 🤖'}
+        {isTurn && <span className="seat-turn-label">차례</span>}
       </div>
       <div className="seat-rank">
         {player.rank && (
@@ -243,13 +252,20 @@ function PhaseOverlay({ game, myId }: { game: GamePublicState; myId: string }) {
   }
 
   if (game.phase === 'TAXATION') {
-    if (pendingTaxReturnCount) {
-      const canSubmit = selected.length === pendingTaxReturnCount;
+    // 반환 의무는 공개 상태(taxationPendingIds)로 판단한다 —
+    // 정확한 장수(pendingTaxReturnCount)는 game:hand로 곧 도착하지만,
+    // 그 사이에도 잘못된 '대기' 배너가 깜빡이지 않도록 계급으로 유추해 둔다.
+    const iOweTax = game.taxationPendingIds.includes(myId);
+    if (iOweTax) {
+      const myRank = game.players.find((p) => p.id === myId)?.rank;
+      const returnCount =
+        pendingTaxReturnCount ?? (myRank === 'GREATER_DALMUTI' ? 2 : 1);
+      const canSubmit = selected.length === returnCount;
       return (
         <div className="overlay">
           <div className="overlay-card overlay-wide">
             <h3>💰 세금 반환</h3>
-            <p>농노에게 돌려줄 카드 {pendingTaxReturnCount}장을 선택하세요.</p>
+            <p>농노에게 돌려줄 카드 {returnCount}장을 선택하세요.</p>
             <div className="overlay-hand">
               {hand.map((c) => (
                 <CardView
@@ -266,7 +282,7 @@ function PhaseOverlay({ game, myId }: { game: GamePublicState; myId: string }) {
               disabled={!canSubmit}
               onClick={() => void payTaxSelected()}
             >
-              {selected.length}/{pendingTaxReturnCount}장 돌려주기
+              {selected.length}/{returnCount}장 돌려주기
             </button>
           </div>
         </div>

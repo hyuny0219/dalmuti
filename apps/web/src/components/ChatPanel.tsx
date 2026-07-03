@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { MAX_CHAT_LENGTH } from '@dalmuti/shared';
 import { useStore } from '../store';
 
 export function ChatPanel() {
@@ -9,17 +10,34 @@ export function ChatPanel() {
   const [collapsed, setCollapsed] = useState(false);
   const [unread, setUnread] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const prevChatLen = useRef(0);
+  const collapsedRef = useRef(collapsed);
+  collapsedRef.current = collapsed;
 
+  // 새 메시지 도착 시: 접혀 있으면 미읽음 증가, 펼쳐져 있으면
+  // (사용자가 위로 스크롤해 읽는 중이 아닐 때만) 아래로 스크롤
   useEffect(() => {
-    if (collapsed) {
-      setUnread((n) => n + 1);
-    } else {
-      listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-      setUnread(0);
+    const added = chat.length - prevChatLen.current;
+    prevChatLen.current = chat.length;
+    if (added <= 0) return;
+    if (collapsedRef.current) {
+      setUnread((n) => n + added);
+      return;
     }
-    // chat 변경 시에만 반응해야 함
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat, collapsed]);
+    const el = listRef.current;
+    if (el) {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      if (nearBottom) el.scrollTo({ top: el.scrollHeight });
+    }
+  }, [chat]);
+
+  // 패널을 펼치면 미읽음 초기화 + 최신 메시지로 이동
+  useEffect(() => {
+    if (!collapsed) {
+      setUnread(0);
+      listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    }
+  }, [collapsed]);
 
   const submit = async () => {
     if (await sendChat(input)) setInput('');
@@ -31,6 +49,7 @@ export function ChatPanel() {
         type="button"
         className="chat-toggle"
         onClick={() => setCollapsed((c) => !c)}
+        aria-expanded={!collapsed}
       >
         💬 채팅
         {collapsed && unread > 0 && <span className="chat-badge">{unread}</span>}
@@ -38,7 +57,7 @@ export function ChatPanel() {
       </button>
       {!collapsed && (
         <>
-          <div className="chat-list" ref={listRef}>
+          <div className="chat-list" ref={listRef} aria-live="polite">
             {chat.map((m) =>
               m.type === 'system' ? (
                 <div key={m.id} className="chat-msg chat-system">
@@ -59,8 +78,9 @@ export function ChatPanel() {
           <div className="chat-input-row">
             <input
               value={input}
-              maxLength={200}
+              maxLength={MAX_CHAT_LENGTH}
               placeholder="메시지 입력..."
+              aria-label="채팅 메시지"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.nativeEvent.isComposing) void submit();

@@ -13,6 +13,9 @@ export function CardView({
   small?: boolean;
 }) {
   const isJester = card.rank === JESTER_RANK;
+  const label = isJester
+    ? '광대 (와일드카드)'
+    : `${card.rank} ${cardName(card.rank)}`;
   return (
     <button
       type="button"
@@ -25,6 +28,8 @@ export function CardView({
       ].join(' ')}
       onClick={onClick}
       disabled={!onClick}
+      aria-label={label}
+      aria-pressed={onClick ? selected : undefined}
     >
       <span className="card-rank">{isJester ? '★' : card.rank}</span>
       {!small && <span className="card-name">{cardName(card.rank)}</span>}

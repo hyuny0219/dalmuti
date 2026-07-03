@@ -114,7 +114,9 @@ export const useStore = create<Store>((set, get) => {
     },
 
     async leaveRoom() {
-      await call('room:leave');
+      // 오프라인 상태에서도 즉시 나가져야 하므로 서버 응답을 기다리지 않는다
+      // (서버는 ack와 무관하게 disconnect로도 동일하게 정리한다)
+      void call('room:leave');
       clearSession();
       set({
         me: null,
@@ -193,9 +195,10 @@ export const useStore = create<Store>((set, get) => {
 
 socket.on('connect', () => {
   useStore.setState({ connected: true });
-  // 저장된 세션이 있으면 자동 복귀 (새로고침/재연결 모두 처리)
-  const { room } = useStore.getState();
-  if (!room && loadSession()) void useStore.getState().rejoin();
+  // 저장된 세션이 있으면 무조건 복귀를 시도한다.
+  // 순간적인 재연결에서도 서버의 새 소켓은 방에 바인딩돼 있지 않으므로
+  // (store에 room이 남아 있더라도) rejoin으로 다시 묶어야 한다.
+  if (loadSession()) void useStore.getState().rejoin();
 });
 
 socket.on('disconnect', () => {
@@ -207,7 +210,12 @@ socket.on('room:state', (room: RoomState) => {
 });
 
 socket.on('game:state', (game: GamePublicState) => {
-  useStore.setState({ game });
+  useStore.setState((s) => ({
+    game,
+    // 세금 단계가 끝나면 반환 안내도 지운다 (다음 라운드로 새지 않게)
+    pendingTaxReturnCount:
+      game.phase === 'TAXATION' ? s.pendingTaxReturnCount : null,
+  }));
 });
 
 socket.on('game:hand', ({ cards, pendingTaxReturnCount }) => {
