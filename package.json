@@ -1,0 +1,16 @@
+{
+  "name": "dalmuti",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "dev:server": "pnpm --filter @dalmuti/server dev",
+    "dev:web": "pnpm --filter @dalmuti/web dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
