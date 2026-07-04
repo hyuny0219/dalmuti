@@ -20,6 +20,16 @@ import {
   type SavedSession,
 } from './session';
 
+/** 화면 이펙트: 내 차례 리본 / 트릭 승리 / 완주 축하 / 혁명 플래시 */
+export type FxKind = 'myturn' | 'trick' | 'finish' | 'revolution';
+export type FxItem = {
+  id: number;
+  kind: FxKind;
+  text: string;
+  /** 강조 변형 (내가 완주 / 대혁명) */
+  strong: boolean;
+};
+
 type Store = {
   connected: boolean;
   rejoining: boolean;
@@ -33,6 +43,8 @@ type Store = {
   /** 턴 제한 마감 시각(epoch ms)과 대상 플레이어 */
   turnDeadlineAt: number | null;
   turnTimerPlayerId: string | null;
+  /** 현재 재생 중인 화면 이펙트 (한 번에 하나, 최신 우선) */
+  fx: FxItem | null;
   /** 화면 상단 토스트로 보여줄 오류 */
   error: string | null;
 
@@ -54,7 +66,11 @@ type Store = {
   toggleSelect: (cardId: string) => void;
   clearSelected: () => void;
   setError: (message: string | null) => void;
+  pushFx: (kind: FxKind, text: string, strong?: boolean) => void;
+  clearFx: (id: number) => void;
 };
+
+let fxSeq = 0;
 
 export const useStore = create<Store>((set, get) => {
   const fail = (message: string) => set({ error: message });
@@ -83,6 +99,7 @@ export const useStore = create<Store>((set, get) => {
     selected: [],
     turnDeadlineAt: null,
     turnTimerPlayerId: null,
+    fx: null,
     error: null,
 
     async createRoom(nickname) {
@@ -231,6 +248,12 @@ export const useStore = create<Store>((set, get) => {
 
     clearSelected: () => set({ selected: [] }),
     setError: (message) => set({ error: message }),
+
+    pushFx: (kind, text, strong = false) =>
+      set({ fx: { id: ++fxSeq, kind, text, strong } }),
+    clearFx: (id) => {
+      if (get().fx?.id === id) set({ fx: null });
+    },
   };
 });
 
@@ -255,12 +278,21 @@ socket.on('room:state', (room: RoomState) => {
 });
 
 socket.on('game:state', (game: GamePublicState) => {
+  const prev = useStore.getState();
+  // 내 차례가 "시작되는" 전이 감지 → 리본 이펙트 (지속 글로우는 상태에서 파생)
+  const meId = prev.me?.playerId;
+  const becameMyTurn =
+    meId !== undefined &&
+    game.phase === 'PLAYING' &&
+    game.currentTurnPlayerId === meId &&
+    prev.game?.currentTurnPlayerId !== meId;
   useStore.setState((s) => ({
     game,
     // 세금 단계가 끝나면 반환 안내도 지운다 (다음 라운드로 새지 않게)
     pendingTaxReturnCount:
       game.phase === 'TAXATION' ? s.pendingTaxReturnCount : null,
   }));
+  if (becameMyTurn) prev.pushFx('myturn', '내 차례!');
 });
 
 socket.on('game:hand', ({ cards, pendingTaxReturnCount }) => {
@@ -282,6 +314,30 @@ socket.on('game:timer', ({ deadlineAt, playerId }) => {
   useStore.setState({ turnDeadlineAt: deadlineAt, turnTimerPlayerId: playerId });
 });
 
-socket.on('game:event', (_event: PublicGameEvent) => {
-  // 애니메이션 훅 자리 — 현재 MVP는 상태 스냅샷 + 시스템 채팅으로 충분
+// 게임 이벤트 → 화면 이펙트 매핑 (서버가 game:state를 먼저 보내므로 닉네임 조회 가능)
+socket.on('game:event', (event: PublicGameEvent) => {
+  const s = useStore.getState();
+  if (!s.game) return;
+  const nick = (id: string) =>
+    s.game!.players.find((p) => p.id === id)?.nickname ?? '???';
+  switch (event.type) {
+    case 'TRICK_WON':
+      s.pushFx('trick', `⚜ ${nick(event.playerId)} 트릭 승리 ⚜`);
+      break;
+    case 'PLAYER_FINISHED': {
+      const medal =
+        event.place === 1 ? '🥇' : event.place === 2 ? '🥈' : event.place === 3 ? '🥉' : '🎉';
+      s.pushFx(
+        'finish',
+        `${medal} ${nick(event.playerId)}님 ${event.place}등 완주!`,
+        event.playerId === s.me?.playerId,
+      );
+      break;
+    }
+    case 'REVOLUTION_DECLARED':
+      s.pushFx('revolution', event.isGreat ? '⚔ 대혁명 ⚔' : '⚔ 혁명 ⚔', event.isGreat);
+      break;
+    default:
+      break;
+  }
 });

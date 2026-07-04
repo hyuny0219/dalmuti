@@ -1,5 +1,6 @@
+import type { CSSProperties } from 'react';
 import { JESTER_RANK, type Card } from '@dalmuti/shared';
-import { cardName } from '../format';
+import { cardName, rankAccent, rankEmoji } from '../format';
 
 export function CardView({
   card,
@@ -16,6 +17,8 @@ export function CardView({
   const label = isJester
     ? '광대 (와일드카드)'
     : `${card.rank} ${cardName(card.rank)}`;
+  // 랭크별 고유 색상 — 테두리/핍/이름/메달리온이 이 색을 따른다
+  const style = { '--accent': rankAccent(card.rank) } as CSSProperties;
   return (
     <button
       type="button"
@@ -30,9 +33,13 @@ export function CardView({
       disabled={!onClick}
       aria-label={label}
       aria-pressed={onClick ? selected : undefined}
+      style={style}
     >
+      <span className="card-pip" aria-hidden="true">{isJester ? '★' : card.rank}</span>
+      <span className="card-emoji" aria-hidden="true">{rankEmoji(card.rank)}</span>
       <span className="card-rank">{isJester ? '★' : card.rank}</span>
       {!small && <span className="card-name">{cardName(card.rank)}</span>}
+      <span className="card-pip card-pip-br" aria-hidden="true">{isJester ? '★' : card.rank}</span>
     </button>
   );
 }

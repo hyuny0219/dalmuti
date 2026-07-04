@@ -7,6 +7,7 @@ import {
 } from '@dalmuti/shared';
 import { CardBackStack, CardView } from '../components/CardView';
 import { ChatPanel } from '../components/ChatPanel';
+import { EffectLayer } from '../components/EffectLayer';
 import { placeMedal, SOCIAL_RANK_LABELS } from '../format';
 import { useStore } from '../store';
 
@@ -45,6 +46,9 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
 
   return (
     <div className="game">
+      {/* 내 차례 동안 화면 가장자리 금빛 맥동 */}
+      {isMyTurn && game.phase === 'PLAYING' && <div className="fx-edge" aria-hidden="true" />}
+      <EffectLayer />
       <div className="game-main">
         <header className="game-header">
           <span>
