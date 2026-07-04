@@ -26,6 +26,7 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
   const playSelected = useStore((s) => s.playSelected);
   const passTurn = useStore((s) => s.passTurn);
   const leaveRoom = useStore((s) => s.leaveRoom);
+  const isSpectator = useStore((s) => s.isSpectator);
 
   const mySeat = game.players.findIndex((p) => p.id === myId);
   const opponents = useMemo(
@@ -55,12 +56,20 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
             라운드 {game.round}/{game.targetRounds}
           </span>
           <TurnCountdown myId={myId} />
+          {room.spectatorCount > 0 && (
+            <span className="spectator-count" title="관전자">
+              👁 {room.spectatorCount}
+            </span>
+          )}
           <span className="game-room-code">방 {room.code}</span>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => {
-              if (window.confirm('게임에서 나갈까요? 세션이 유지되어 다시 접속하면 복귀할 수 있습니다.')) {
+              if (
+                isSpectator ||
+                window.confirm('게임에서 나갈까요? 세션이 유지되어 다시 접속하면 복귀할 수 있습니다.')
+              ) {
                 void leaveRoom();
               }
             }}
@@ -104,6 +113,14 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
           )}
         </div>
 
+        {isSpectator ? (
+          <div className="my-area spectator-bar">
+            <span className="spectator-flag">👁 관전 중</span>
+            <span className="spectator-hint">
+              게임에 참여하지 않고 지켜보고 있습니다. 채팅은 사용할 수 있어요.
+            </span>
+          </div>
+        ) : (
         <div className="my-area">
           <div className="my-info">
             <span className="my-name">
@@ -160,6 +177,7 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
             </div>
           )}
         </div>
+        )}
       </div>
 
       <ChatPanel />

@@ -19,6 +19,7 @@ export function LobbyPage() {
   const me = useStore((s) => s.me)!;
   const startGame = useStore((s) => s.startGame);
   const updateOptions = useStore((s) => s.updateOptions);
+  const setRoomPublic = useStore((s) => s.setRoomPublic);
   const addBot = useStore((s) => s.addBot);
   const removeBot = useStore((s) => s.removeBot);
   const setBotDifficulty = useStore((s) => s.setBotDifficulty);
@@ -162,6 +163,15 @@ export function LobbyPage() {
               disabled={!isHost}
               checked={room.options.enableRevolution}
               onChange={(e) => setOpt({ enableRevolution: e.target.checked })}
+            />
+          </label>
+          <label className="opt-row">
+            <span>공개 방 목록 노출</span>
+            <input
+              type="checkbox"
+              disabled={!isHost}
+              checked={room.isPublic}
+              onChange={(e) => void setRoomPublic(e.target.checked)}
             />
           </label>
         </section>

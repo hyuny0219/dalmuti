@@ -31,6 +31,30 @@ export type RoomState = {
   hostId: string;
   players: RoomPlayer[];
   options: GameOptions;
+  /** 공개 방 목록 노출 여부 */
+  isPublic: boolean;
+  /** 관전자 수 (관전자 명단은 공개하지 않는다) */
+  spectatorCount: number;
+};
+
+/** 공개 방 목록의 한 항목 */
+export type PublicRoomSummary = {
+  code: string;
+  hostNickname: string;
+  playerCount: number;
+  maxPlayers: number;
+  /** true면 게임 중(관전 가능), false면 대기 중(참가 가능) */
+  inGame: boolean;
+  round: number | null;
+  targetRounds: number | null;
+  spectatorCount: number;
+};
+
+export type SpectateResult = {
+  spectatorId: string;
+  room: RoomState;
+  game: GamePublicState | null;
+  chatHistory: ChatMessage[];
 };
 
 /**
@@ -63,10 +87,19 @@ export type RejoinResult = {
 /** 클라이언트 → 서버 이벤트 */
 export type ClientToServerEvents = {
   'room:create': (
-    payload: { nickname: string; options?: Partial<GameOptions> },
+    payload: { nickname: string; options?: Partial<GameOptions>; isPublic?: boolean },
     ack: Ack<JoinResult>,
   ) => void;
   'room:join': (payload: { roomCode: string; nickname: string }, ack: Ack<JoinResult>) => void;
+  /** 공개 방 목록 조회 (방 밖에서도 가능) */
+  'room:list': (ack: Ack<PublicRoomSummary[]>) => void;
+  /** 관전 입장 — 좌석 없이 공개 상태·채팅만 수신 */
+  'room:spectate': (
+    payload: { roomCode: string; nickname: string },
+    ack: Ack<SpectateResult>,
+  ) => void;
+  /** 방장: 공개 방 목록 노출 토글 */
+  'room:setPublic': (payload: { isPublic: boolean }, ack: Ack) => void;
   'room:rejoin': (
     payload: { roomCode: string; sessionToken: string },
     ack: Ack<RejoinResult>,
@@ -105,6 +138,8 @@ export type ServerToClientEvents = {
    */
   'game:timer': (payload: { deadlineAt: number | null; playerId: string | null }) => void;
   'chat:message': (message: ChatMessage) => void;
+  /** 방이 삭제됨 (전원 퇴장 등) — 남아 있는 관전자 등에게 통지 */
+  'room:closed': () => void;
 };
 
 /** 서버 오류 코드 (GameErrorCode 외 서버 계층 오류) */
@@ -120,6 +155,7 @@ export type ServerErrorCode =
   | 'NICKNAME_TAKEN'
   | 'NOT_A_BOT'
   | 'INVALID_DIFFICULTY'
+  | 'NOT_A_PLAYER'
   | 'INVALID_SESSION'
   | 'INVALID_PAYLOAD'
   | 'CHAT_RATE_LIMITED'

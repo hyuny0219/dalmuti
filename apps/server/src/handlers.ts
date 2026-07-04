@@ -55,12 +55,18 @@ const ok = <T>(data: T) => ({ ok: true, data }) as const;
 function getCtx(
   socket: IoSocket,
   rooms: RoomManager,
-): { room: Room; memberId: string } | null {
+): { room: Room; memberId: string; isSpectator: boolean } | null {
   const data = socket.data as SocketData;
   if (!data.roomCode || !data.playerId) return null;
   const room = rooms.get(data.roomCode);
-  if (!room || !room.findById(data.playerId)) return null;
-  return { room, memberId: data.playerId };
+  if (!room) return null;
+  if (room.findById(data.playerId)) {
+    return { room, memberId: data.playerId, isSpectator: false };
+  }
+  if (room.findSpectatorById(data.playerId)) {
+    return { room, memberId: data.playerId, isSpectator: true };
+  }
+  return null;
 }
 
 function validNickname(raw: unknown): string | null {
@@ -88,6 +94,9 @@ export class GameGateway {
   register(socket: IoSocket): void {
     socket.on('room:create', (payload, ack) => this.onCreate(socket, payload, ack));
     socket.on('room:join', (payload, ack) => this.onJoin(socket, payload, ack));
+    socket.on('room:list', (ack) => this.onList(ack));
+    socket.on('room:spectate', (payload, ack) => this.onSpectate(socket, payload, ack));
+    socket.on('room:setPublic', (payload, ack) => this.onSetPublic(socket, payload, ack));
     socket.on('room:rejoin', (payload, ack) => this.onRejoin(socket, payload, ack));
     socket.on('room:leave', (ack) => this.onLeave(socket, ack));
     socket.on('room:options', (payload, ack) => this.onOptions(socket, payload, ack));
@@ -129,7 +138,7 @@ export class GameGateway {
 
   private onCreate(
     socket: IoSocket,
-    payload: { nickname: string; options?: object },
+    payload: { nickname: string; options?: object; isPublic?: boolean },
     ack: Ack<import('@dalmuti/shared').JoinResult>,
   ): void {
     if (typeof ack !== 'function') return;
@@ -140,6 +149,7 @@ export class GameGateway {
     const member = createMember(nickname, socket.id);
     const room = this.rooms.create(member, payload?.options);
     if (!room) return ack(fail('SERVER_FULL', '서버에 방이 가득 찼습니다. 잠시 후 다시 시도해주세요'));
+    room.isPublic = payload?.isPublic === true;
     this.bind(socket, room.code, member.id);
     this.pushChat(room, systemMessage(`${nickname}님이 방을 만들었습니다.`));
     this.broadcastRoom(room);
@@ -244,10 +254,64 @@ export class GameGateway {
     }
   }
 
+  // ── 공개 방 목록 / 관전 ──────────────────────────────────────
+
+  private onList(ack: Ack<import('@dalmuti/shared').PublicRoomSummary[]>): void {
+    if (typeof ack !== 'function') return;
+    ack(ok(this.rooms.listPublic()));
+  }
+
+  private onSpectate(
+    socket: IoSocket,
+    payload: { roomCode: string; nickname: string },
+    ack: Ack<import('@dalmuti/shared').SpectateResult>,
+  ): void {
+    if (typeof ack !== 'function') return;
+    if (getCtx(socket, this.rooms)) return ack(fail('ALREADY_IN_ROOM', '이미 방에 있습니다'));
+    const nickname = validNickname(payload?.nickname);
+    if (!nickname) return ack(fail('INVALID_NICKNAME', '닉네임은 1~20자여야 합니다'));
+    const room =
+      typeof payload?.roomCode === 'string' ? this.rooms.get(payload.roomCode) : undefined;
+    if (!room) return ack(fail('ROOM_NOT_FOUND', '방을 찾을 수 없습니다'));
+
+    const spectator = createMember(nickname, socket.id);
+    room.spectators.push(spectator);
+    room.touch();
+    this.bind(socket, room.code, spectator.id);
+    this.pushChat(room, systemMessage(`👁 ${nickname}님이 관전을 시작했습니다.`));
+    this.broadcastRoom(room);
+    ack(
+      ok({
+        spectatorId: spectator.id,
+        room: room.toState(),
+        game: room.game?.getPublicState() ?? null,
+        chatHistory: [...room.chat],
+      }),
+    );
+  }
+
+  private onSetPublic(socket: IoSocket, payload: { isPublic: boolean }, ack: Ack): void {
+    if (typeof ack !== 'function') return;
+    const ctx = getCtx(socket, this.rooms);
+    if (!ctx) return ack(fail('NOT_IN_ROOM', '방에 있지 않습니다'));
+    if (ctx.memberId !== ctx.room.hostId) return ack(fail('NOT_HOST', '방장만 가능합니다'));
+    if (typeof payload?.isPublic !== 'boolean') {
+      return ack(fail('INVALID_PAYLOAD', '잘못된 요청입니다'));
+    }
+    ctx.room.isPublic = payload.isPublic;
+    ctx.room.touch();
+    this.broadcastRoom(ctx.room);
+    ack(ok(undefined));
+  }
+
   private onLeave(socket: IoSocket, ack: Ack): void {
     if (typeof ack !== 'function') return;
     const ctx = getCtx(socket, this.rooms);
     if (!ctx) return ack(fail('NOT_IN_ROOM', '방에 있지 않습니다'));
+    if (ctx.isSpectator) {
+      this.removeSpectator(socket, ctx.room, ctx.memberId);
+      return ack(ok(undefined));
+    }
     if (ctx.room.isInGame) {
       // 게임 중 이탈은 좌석과 세션을 보존한다 (엔진에서 자리를 뺄 수 없고,
       // 제거하면 세션 토큰이 사라져 복귀도 불가능해 게임이 교착된다)
@@ -261,6 +325,10 @@ export class GameGateway {
   private onDisconnect(socket: IoSocket): void {
     const ctx = getCtx(socket, this.rooms);
     if (!ctx) return;
+    if (ctx.isSpectator) {
+      this.removeSpectator(socket, ctx.room, ctx.memberId);
+      return;
+    }
     if (ctx.room.isInGame) {
       // 게임 중엔 자리를 보존하고 재접속을 기다린다
       this.markDisconnected(socket, ctx.room, ctx.memberId, '연결이 끊어졌습니다');
@@ -309,11 +377,22 @@ export class GameGateway {
     (socket.data as SocketData).playerId = undefined;
 
     if (room.members.length === 0 || room.hasNoHumans) {
-      this.rooms.delete(room.code); // 봇만 남은 방은 유지할 이유가 없다
+      // 봇만 남은 방은 유지할 이유가 없다 — 남은 관전자에게는 종료를 알린다
+      this.io.to(room.code).emit('room:closed');
+      this.rooms.delete(room.code);
       return;
     }
     room.reassignHostIfNeeded();
     if (member) this.pushChat(room, systemMessage(`${member.nickname}님이 ${verb}.`));
+    this.broadcastRoom(room);
+  }
+
+  private removeSpectator(socket: IoSocket, room: Room, spectatorId: string): void {
+    room.spectators = room.spectators.filter((s) => s.id !== spectatorId);
+    room.forgetChatRate(spectatorId);
+    socket.leave(room.code);
+    (socket.data as SocketData).roomCode = undefined;
+    (socket.data as SocketData).playerId = undefined;
     this.broadcastRoom(room);
   }
 
@@ -498,6 +577,9 @@ export class GameGateway {
     if (typeof ack !== 'function') return;
     const ctx = getCtx(socket, this.rooms);
     if (!ctx) return ack(fail('NOT_IN_ROOM', '방에 있지 않습니다'));
+    if (ctx.isSpectator) {
+      return ack(fail('NOT_A_PLAYER', '관전자는 게임에 참여할 수 없습니다'));
+    }
     if (!ctx.room.game) return ack(fail('GAME_NOT_STARTED', '게임이 시작되지 않았습니다'));
     try {
       action(ctx.room.game, ctx.memberId);
@@ -534,7 +616,14 @@ export class GameGateway {
     if (typeof ack !== 'function') return;
     const ctx = getCtx(socket, this.rooms);
     if (!ctx) return ack(fail('NOT_IN_ROOM', '방에 있지 않습니다'));
-    const member = ctx.room.findById(ctx.memberId)!;
+    // 관전자도 채팅 가능 — 닉네임에 👁 표시로 구분
+    const sender = ctx.isSpectator
+      ? ctx.room.findSpectatorById(ctx.memberId)
+      : ctx.room.findById(ctx.memberId);
+    if (!sender) return ack(fail('NOT_IN_ROOM', '방에 있지 않습니다'));
+    const member = ctx.isSpectator
+      ? { ...sender, nickname: `👁 ${sender.nickname}` }
+      : sender;
 
     const raw = typeof payload?.text === 'string' ? payload.text : '';
     const text = raw.replace(/[\p{Cc}\p{Cf}]/gu, '').trim();

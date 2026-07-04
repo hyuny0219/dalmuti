@@ -279,6 +279,105 @@ input::placeholder {
   letter-spacing: 0.18em;
 }
 
+.home-public-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.home-public-check input {
+  accent-color: var(--gold);
+  width: 16px;
+  height: 16px;
+}
+
+/* 공개 방 목록 */
+.public-rooms {
+  width: min(560px, 92vw);
+  margin-top: 28px;
+}
+.public-rooms-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.public-rooms-head h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--champagne);
+}
+.public-rooms-empty {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-align: center;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 18px 16px;
+}
+.public-rooms-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.public-rooms-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--glass);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  font-size: 0.86rem;
+}
+.pr-code {
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: var(--gold-bright);
+  font-variant-numeric: tabular-nums;
+}
+.pr-host {
+  font-weight: 700;
+}
+.pr-meta {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 관전 */
+.spectator-count {
+  color: var(--cyan);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.spectator-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.spectator-flag {
+  background: rgba(56, 209, 195, 0.12);
+  border: 1px solid rgba(56, 209, 195, 0.45);
+  color: var(--cyan);
+  font-weight: 800;
+  padding: 3px 14px;
+  border-radius: 999px;
+  letter-spacing: 0.06em;
+}
+.spectator-hint {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
 /* ── 로비 ─────────────────────────────────────── */
 .lobby {
   flex: 1;

@@ -1,15 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { clearSession, loadNickname, loadSession } from '../session';
 import { useStore } from '../store';
 
 export function HomePage() {
   const createRoom = useStore((s) => s.createRoom);
   const joinRoom = useStore((s) => s.joinRoom);
+  const spectateRoom = useStore((s) => s.spectateRoom);
+  const fetchPublicRooms = useStore((s) => s.fetchPublicRooms);
+  const publicRooms = useStore((s) => s.publicRooms);
+  const publicRoomsLoading = useStore((s) => s.publicRoomsLoading);
+  const connected = useStore((s) => s.connected);
+  const setError = useStore((s) => s.setError);
   const rejoin = useStore((s) => s.rejoin);
   const rejoining = useStore((s) => s.rejoining);
   const [nickname, setNickname] = useState(loadNickname());
   const [code, setCode] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // 접속되면 공개 방 목록 로드
+  useEffect(() => {
+    if (connected) void fetchPublicRooms();
+  }, [connected, fetchPublicRooms]);
   // 게임 중 "나가기"로 떠난 세션 — 자동 복귀 대신 수동 복귀 버튼을 보여준다
   const [leftSession, setLeftSession] = useState(() => {
     const saved = loadSession();
@@ -69,11 +81,20 @@ export function HomePage() {
             />
           </label>
 
+          <label className="home-public-check">
+            <input
+              type="checkbox"
+              checked={isPublic}
+              onChange={(e) => setIsPublic(e.target.checked)}
+            />
+            공개 방 목록에 노출 (누구나 참가·관전 가능)
+          </label>
+
           <button
             type="button"
             className="btn btn-primary"
             disabled={!nicknameOk || busy}
-            onClick={() => void withBusy(() => createRoom(nickname.trim()))}
+            onClick={() => void withBusy(() => createRoom(nickname.trim(), isPublic))}
           >
             방 만들기
           </button>
@@ -97,6 +118,68 @@ export function HomePage() {
             </button>
           </div>
         </div>
+      )}
+
+      {!rejoining && (
+        <section className="public-rooms">
+          <div className="public-rooms-head">
+            <h3>공개 방</h3>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={publicRoomsLoading}
+              onClick={() => void fetchPublicRooms()}
+            >
+              {publicRoomsLoading ? '불러오는 중...' : '↻ 새로고침'}
+            </button>
+          </div>
+          {publicRooms.length === 0 ? (
+            <p className="public-rooms-empty">
+              지금 공개된 방이 없습니다. 방을 만들 때 "공개 방 목록에 노출"을 켜면 여기에 표시됩니다.
+            </p>
+          ) : (
+            <ul className="public-rooms-list">
+              {publicRooms.map((r) => (
+                <li key={r.code}>
+                  <span className="pr-code">{r.code}</span>
+                  <span className="pr-host">{r.hostNickname}</span>
+                  <span className="pr-meta">
+                    {r.playerCount}/{r.maxPlayers}명
+                    {r.inGame
+                      ? ` · 라운드 ${r.round}/${r.targetRounds}`
+                      : ' · 대기 중'}
+                    {r.spectatorCount > 0 && ` · 👁 ${r.spectatorCount}`}
+                  </span>
+                  {r.inGame ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={busy}
+                      onClick={() => {
+                        if (!nicknameOk) return setError('먼저 닉네임을 입력해주세요');
+                        void withBusy(() => spectateRoom(r.code, nickname.trim()));
+                      }}
+                    >
+                      👁 관전
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={busy || r.playerCount >= r.maxPlayers}
+                      onClick={() => {
+                        if (!nicknameOk) return setError('먼저 닉네임을 입력해주세요');
+                        void withBusy(() => joinRoom(r.code, nickname.trim()));
+                      }}
+                    >
+                      참가
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
     </div>
   );
