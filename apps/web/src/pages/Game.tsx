@@ -81,13 +81,18 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
           </button>
         </header>
 
+        {/* 좌석은 내 다음 차례부터 턴 진행 순서로 정렬 — 번호로 순서를 명시 */}
+        <div className="turn-order-caption" aria-hidden="true">
+          내 다음 순서 ▸
+        </div>
         <div className={`opponents ${compactSeats ? 'opponents-compact' : ''}`}>
-          {opponents.map((p) => (
+          {opponents.map((p, i) => (
             <OpponentSeat
               key={p.id}
               player={p}
               isTurn={game.currentTurnPlayerId === p.id}
               compact={compactSeats}
+              order={i + 1}
             />
           ))}
         </div>
@@ -195,11 +200,24 @@ function OpponentSeat({
   player,
   isTurn,
   compact = false,
+  order,
 }: {
   player: PlayerPublic;
   isTurn: boolean;
   compact?: boolean;
+  /** 내 기준 턴 진행 순서 (1 = 내 바로 다음) */
+  order: number;
 }) {
+  // 완주자는 순서에서 빠지므로 번호를 흐리게 표시
+  const orderChip = (
+    <span
+      className={`seat-order ${player.finishedPlace ? 'seat-order-done' : ''}`}
+      title={`내 다음 ${order}번째 순서`}
+      aria-label={`턴 순서 ${order}번`}
+    >
+      {order}
+    </span>
+  );
   if (compact) {
     // 5인 이상: 한 줄 알약형 좌석 — 스크롤 없이 전원이 한 화면에 들어온다
     return (
@@ -211,6 +229,7 @@ function OpponentSeat({
           player.connected ? '' : 'seat-disconnected',
         ].join(' ')}
       >
+        {orderChip}
         {player.rank && (
           <span className="seat-rank-mini" title={SOCIAL_RANK_LABELS[player.rank].label}>
             {SOCIAL_RANK_LABELS[player.rank].emoji}
@@ -235,6 +254,7 @@ function OpponentSeat({
         player.connected ? '' : 'seat-disconnected',
       ].join(' ')}
     >
+      {orderChip}
       <div className="seat-name">
         {player.nickname}
         {player.isBot && ' 🤖'}

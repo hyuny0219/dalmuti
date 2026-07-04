@@ -55,15 +55,24 @@ function playRound1(game: DalmutiGame): void {
 }
 
 describe('DalmutiGame 생성', () => {
-  it('4명 미만/8명 초과는 거부한다', () => {
+  it('4명 미만/10명 초과는 거부한다', () => {
     const three = PLAYERS.slice(0, 3);
     expect(() => new DalmutiGame(three, DEFAULT_GAME_OPTIONS)).toThrowError(
       expect.objectContaining({ code: 'INVALID_PLAYER_COUNT' }),
     );
-    const nine = Array.from({ length: 9 }, (_, i) => ({ id: `x${i}`, nickname: `x${i}` }));
-    expect(() => new DalmutiGame(nine, DEFAULT_GAME_OPTIONS)).toThrowError(
+    const eleven = Array.from({ length: 11 }, (_, i) => ({ id: `x${i}`, nickname: `x${i}` }));
+    expect(() => new DalmutiGame(eleven, DEFAULT_GAME_OPTIONS)).toThrowError(
       expect.objectContaining({ code: 'INVALID_PLAYER_COUNT' }),
     );
+  });
+
+  it('10명 게임도 시작·분배된다 (인당 8장)', () => {
+    const ten = Array.from({ length: 10 }, (_, i) => ({ id: `t${i}`, nickname: `t${i}` }));
+    const game = new DalmutiGame(ten, DEFAULT_GAME_OPTIONS, () => 0);
+    game.startRound();
+    const state = game.getPublicState();
+    expect(state.players).toHaveLength(10);
+    expect(state.players.every((p) => p.handCount === 8)).toBe(true);
   });
 
   it('중복 id는 거부한다', () => {

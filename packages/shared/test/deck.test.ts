@@ -49,7 +49,7 @@ describe('shuffle', () => {
 
 describe('deal', () => {
   it('모든 카드를 남김없이 분배한다', () => {
-    for (let n = 4; n <= 8; n++) {
+    for (let n = 4; n <= 10; n++) {
       const hands = deal(createDeck(), n);
       expect(hands.flat()).toHaveLength(TOTAL_CARDS);
       const sizes = hands.map((h) => h.length);

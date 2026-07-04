@@ -6,7 +6,8 @@ export const JESTER_COUNT = 2;
 export const TOTAL_CARDS = (MAX_RANK * (MAX_RANK + 1)) / 2 + JESTER_COUNT;
 
 export const MIN_PLAYERS = 4;
-export const MAX_PLAYERS = 8;
+/** 정식 룰은 4~8인이지만 80장 덱으로 10인(인당 8장)까지 무리 없이 동작한다 */
+export const MAX_PLAYERS = 10;
 
 export const MAX_CHAT_LENGTH = 200;
 export const CHAT_HISTORY_LIMIT = 100;
