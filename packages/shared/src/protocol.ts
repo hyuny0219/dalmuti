@@ -156,6 +156,7 @@ export type ServerErrorCode =
   | 'NOT_A_BOT'
   | 'INVALID_DIFFICULTY'
   | 'NOT_A_PLAYER'
+  | 'PRIVATE_ROOM'
   | 'INVALID_SESSION'
   | 'INVALID_PAYLOAD'
   | 'CHAT_RATE_LIMITED'

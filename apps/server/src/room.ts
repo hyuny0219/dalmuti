@@ -317,14 +317,18 @@ export class RoomManager {
       .map((r) => r.toPublicSummary());
   }
 
-  /** 전원이 나갔거나 30분 이상 방치된 방 정리 (봇만 남은 방은 사람이 없는 것으로 취급) */
-  sweep(now = Date.now()): number {
+  /**
+   * 전원이 나갔거나 30분 이상 방치된 방 정리 (봇만 남은 방은 사람이 없는 것으로 취급).
+   * onDelete로 소켓 정리(관전자 언바인딩 등)를 위임할 수 있다.
+   */
+  sweep(now = Date.now(), onDelete?: (room: Room) => void): number {
     const STALE_MS = 30 * 60 * 1000;
     let removed = 0;
     for (const [code, room] of this.rooms) {
       const empty = room.members.length === 0;
       const noHumanConnected = room.members.every((m) => m.isBot || !m.connected);
       if (empty || (noHumanConnected && now - room.lastActivityAt > STALE_MS)) {
+        onDelete?.(room);
         room.dispose();
         this.rooms.delete(code);
         removed++;

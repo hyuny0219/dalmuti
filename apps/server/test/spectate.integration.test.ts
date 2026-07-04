@@ -196,4 +196,40 @@ describe('관전 모드', () => {
     const res = await call(spec, 'room:spectate', { roomCode: 'ZZZZZZ', nickname: '유령' });
     expect(res).toMatchObject({ ok: false, error: { code: 'ROOM_NOT_FOUND' } });
   });
+
+  it('비공개 방은 코드를 알아도 관전할 수 없다', async () => {
+    const host = await connect();
+    const join = expectOk<JoinResult>(
+      await call(host, 'room:create', { nickname: '은둔자' }), // 기본 비공개
+    );
+    const spec = await connect();
+    const res = await call(spec, 'room:spectate', {
+      roomCode: join.roomCode,
+      nickname: '엿보기',
+    });
+    expect(res).toMatchObject({ ok: false, error: { code: 'PRIVATE_ROOM' } });
+  });
+
+  it('방이 삭제되면 관전자는 room:closed를 받고 소켓 룸에서 분리된다', async () => {
+    const host = await connect();
+    const join = expectOk<JoinResult>(
+      await call(host, 'room:create', { nickname: '떠날사람', isPublic: true }),
+    );
+    const spec = await connect();
+    expectOk<SpectateResult>(
+      await call(spec, 'room:spectate', { roomCode: join.roomCode, nickname: '남을사람' }),
+    );
+
+    const closed = new Promise<void>((resolve) => spec.once('room:closed', resolve));
+    expectOk(await call(host, 'room:leave')); // 마지막 사람 퇴장 → 방 삭제
+    await closed;
+
+    // 서버 소켓 룸에서 관전자가 분리됐다 (코드 재사용 시 유출 방지)
+    const adapterRoom = server.io.sockets.adapter.rooms.get(join.roomCode);
+    expect(adapterRoom === undefined || adapterRoom.size === 0).toBe(true);
+
+    // 바인딩도 해제되어 이후 요청은 NOT_IN_ROOM
+    const chat = await call(spec, 'chat:send', { text: '아직 있나요?' });
+    expect(chat).toMatchObject({ ok: false, error: { code: 'NOT_IN_ROOM' } });
+  });
 });

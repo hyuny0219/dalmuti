@@ -273,6 +273,10 @@ export class GameGateway {
     const room =
       typeof payload?.roomCode === 'string' ? this.rooms.get(payload.roomCode) : undefined;
     if (!room) return ack(fail('ROOM_NOT_FOUND', '방을 찾을 수 없습니다'));
+    // 비공개 방은 코드가 유출돼도 게임 상태·채팅이 노출되지 않도록 관전 차단
+    if (!room.isPublic) {
+      return ack(fail('PRIVATE_ROOM', '비공개 방은 관전할 수 없습니다'));
+    }
 
     const spectator = createMember(nickname, socket.id);
     room.spectators.push(spectator);
@@ -377,14 +381,34 @@ export class GameGateway {
     (socket.data as SocketData).playerId = undefined;
 
     if (room.members.length === 0 || room.hasNoHumans) {
-      // 봇만 남은 방은 유지할 이유가 없다 — 남은 관전자에게는 종료를 알린다
-      this.io.to(room.code).emit('room:closed');
+      // 봇만 남은 방은 유지할 이유가 없다
+      this.closeRoom(room);
       this.rooms.delete(room.code);
       return;
     }
     room.reassignHostIfNeeded();
     if (member) this.pushChat(room, systemMessage(`${member.nickname}님이 ${verb}.`));
     this.broadcastRoom(room);
+  }
+
+  /**
+   * 방 소멸 처리: 종료 통지 후 남은 소켓(관전자 포함)을 소켓 룸에서 전부 분리하고
+   * 바인딩을 지운다 — 같은 방 코드가 재사용될 때 이전 소켓이 새 방의
+   * 브로드캐스트를 받는 유출을 막는다. 방 삭제 직전에 반드시 호출할 것.
+   */
+  closeRoom(room: Room): void {
+    this.io.to(room.code).emit('room:closed');
+    for (const spectator of room.spectators) {
+      const sock = spectator.socketId
+        ? this.io.sockets.sockets.get(spectator.socketId)
+        : undefined;
+      if (sock) {
+        (sock.data as SocketData).roomCode = undefined;
+        (sock.data as SocketData).playerId = undefined;
+      }
+    }
+    // 남아 있는 모든 소켓을 소켓 룸에서 분리 (멤버·관전자·스테일 전부)
+    this.io.in(room.code).socketsLeave(room.code);
   }
 
   private removeSpectator(socket: IoSocket, room: Room, spectatorId: string): void {
