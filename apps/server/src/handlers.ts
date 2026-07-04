@@ -273,10 +273,8 @@ export class GameGateway {
     const room =
       typeof payload?.roomCode === 'string' ? this.rooms.get(payload.roomCode) : undefined;
     if (!room) return ack(fail('ROOM_NOT_FOUND', '방을 찾을 수 없습니다'));
-    // 비공개 방은 코드가 유출돼도 게임 상태·채팅이 노출되지 않도록 관전 차단
-    if (!room.isPublic) {
-      return ack(fail('PRIVATE_ROOM', '비공개 방은 관전할 수 없습니다'));
-    }
+    // 비공개 방도 코드를 알면 관전 가능 — 방 코드 자체가 초대장이며(참가와 동일 정책),
+    // 비공개의 의미는 "공개 목록에 노출되지 않음"으로 한정한다.
 
     const spectator = createMember(nickname, socket.id);
     room.spectators.push(spectator);

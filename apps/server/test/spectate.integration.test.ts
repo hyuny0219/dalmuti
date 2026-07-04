@@ -197,17 +197,24 @@ describe('관전 모드', () => {
     expect(res).toMatchObject({ ok: false, error: { code: 'ROOM_NOT_FOUND' } });
   });
 
-  it('비공개 방은 코드를 알아도 관전할 수 없다', async () => {
+  it('비공개 방도 코드를 알면 관전할 수 있다 (코드 = 초대장 정책)', async () => {
     const host = await connect();
     const join = expectOk<JoinResult>(
       await call(host, 'room:create', { nickname: '은둔자' }), // 기본 비공개
     );
     const spec = await connect();
-    const res = await call(spec, 'room:spectate', {
-      roomCode: join.roomCode,
-      nickname: '엿보기',
-    });
-    expect(res).toMatchObject({ ok: false, error: { code: 'PRIVATE_ROOM' } });
+    const res = expectOk<SpectateResult>(
+      await call(spec, 'room:spectate', {
+        roomCode: join.roomCode,
+        nickname: '초대받은친구',
+      }),
+    );
+    expect(res.room.spectatorCount).toBe(1);
+    // 단, 비공개 방은 여전히 공개 목록에는 노출되지 않는다
+    const list = expectOk<import('@dalmuti/shared').PublicRoomSummary[]>(
+      await call(spec, 'room:list'),
+    );
+    expect(list.some((r) => r.code === join.roomCode)).toBe(false);
   });
 
   it('방이 삭제되면 관전자는 room:closed를 받고 소켓 룸에서 분리된다', async () => {
