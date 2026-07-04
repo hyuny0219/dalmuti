@@ -1,6 +1,24 @@
 import { useEffect, useState } from 'react';
 import { clearSession, loadNickname, loadSession } from '../session';
+import { RulesModal } from '../components/RulesModal';
 import { useStore } from '../store';
+
+/**
+ * 초대 링크(?room=CODE)로 열렸으면 방 코드를 돌려주고 주소를 정리한다.
+ * StrictMode가 초기화 함수를 두 번 호출해도 안전하게 첫 결과를 기억한다.
+ */
+let inviteCodeCache: string | null = null;
+function consumeInviteCode(): string {
+  if (inviteCodeCache !== null) return inviteCodeCache;
+  const params = new URLSearchParams(window.location.search);
+  const code = (params.get('room') ?? '').toUpperCase();
+  if (code) {
+    // 새로고침/공유 시 파라미터가 다시 발동하지 않게 주소에서 지운다
+    window.history.replaceState(null, '', window.location.pathname);
+  }
+  inviteCodeCache = /^[A-Z0-9]{6}$/.test(code) ? code : '';
+  return inviteCodeCache;
+}
 
 export function HomePage() {
   const createRoom = useStore((s) => s.createRoom);
@@ -14,9 +32,12 @@ export function HomePage() {
   const rejoin = useStore((s) => s.rejoin);
   const rejoining = useStore((s) => s.rejoining);
   const [nickname, setNickname] = useState(loadNickname());
-  const [code, setCode] = useState('');
+  // 초대 링크로 들어왔으면 방 코드를 미리 채워 닉네임만 입력하면 되게
+  const [code, setCode] = useState(consumeInviteCode);
+  const [invited] = useState(() => code !== '');
   const [isPublic, setIsPublic] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showRules, setShowRules] = useState(false);
 
   // 접속되면 공개 방 목록 로드
   useEffect(() => {
@@ -44,7 +65,23 @@ export function HomePage() {
       <h1 className="home-title">
         <span className="home-crown">👑</span> 달무티
       </h1>
-      <p className="home-subtitle">중세 신분제 카드게임 — 온라인</p>
+      <p className="home-subtitle">
+        중세 신분제 카드게임 — 온라인
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm rules-link"
+          onClick={() => setShowRules(true)}
+        >
+          📜 규칙 보기
+        </button>
+      </p>
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+
+      {invited && !rejoining && (
+        <div className="home-invited">
+          🔗 초대 링크로 입장했습니다 — 닉네임을 입력하고 <strong>참가하기</strong>를 누르세요.
+        </div>
+      )}
 
       {leftSession && !rejoining && (
         <div className="home-resume">

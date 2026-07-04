@@ -1,18 +1,22 @@
 import { create } from 'zustand';
-import type {
-  BotDifficulty,
-  Card,
-  ChatMessage,
-  GameOptions,
-  GamePublicState,
-  JoinResult,
-  PublicGameEvent,
-  PublicRoomSummary,
-  RejoinResult,
-  RoomState,
-  SpectateResult,
+import {
+  PROTOCOL_VERSION,
+  type BotDifficulty,
+  type Card,
+  type ChatMessage,
+  type GameOptions,
+  type GamePublicState,
+  type JoinResult,
+  type PublicGameEvent,
+  type PublicRoomSummary,
+  type RejoinResult,
+  type RoomState,
+  type SocialRank,
+  type SpectateResult,
 } from '@dalmuti/shared';
 import { call, socket } from './socket';
+import { notifyMyTurn } from './notify';
+import { recordGameResult } from './stats';
 import {
   clearSession,
   loadSession,
@@ -30,6 +34,12 @@ export type FxItem = {
   text: string;
   /** 강조 변형 (내가 완주 / 대혁명) */
   strong: boolean;
+};
+
+/** 게임 종료 요약용 라운드별 결과 (클라이언트가 ROUND_ENDED 이벤트를 누적) */
+export type RoundResult = {
+  round: number;
+  placements: Array<{ playerId: string; place: number; rank: SocialRank }>;
 };
 
 type Store = {
@@ -54,6 +64,12 @@ type Store = {
   publicRoomsLoading: boolean;
   /** 화면 상단 토스트로 보여줄 오류 */
   error: string | null;
+  /** 서버가 새 프로토콜로 배포됨 — 새로고침 안내 배너 */
+  versionMismatch: boolean;
+  /** 내가 채팅을 가리기로 한 플레이어 id (이 브라우저에서만, 방 단위) */
+  mutedIds: string[];
+  /** 이번 게임의 라운드별 결과 (종료 요약용) */
+  roundHistory: RoundResult[];
 
   createRoom: (nickname: string, isPublic?: boolean) => Promise<void>;
   joinRoom: (roomCode: string, nickname: string) => Promise<void>;
@@ -73,6 +89,11 @@ type Store = {
   payTaxSelected: () => Promise<void>;
   nextRound: () => Promise<void>;
   sendChat: (text: string) => Promise<boolean>;
+  /** 관전자 → 참가자 전환 (대기/게임 종료 상태에서만) */
+  sitDown: () => Promise<void>;
+  /** 방장: 사람 멤버 내보내기 (로비 전용) */
+  kickPlayer: (playerId: string) => Promise<void>;
+  toggleMute: (playerId: string) => void;
   toggleSelect: (cardId: string) => void;
   clearSelected: () => void;
   setError: (message: string | null) => void;
@@ -102,6 +123,8 @@ export const useStore = create<Store>((set, get) => {
       hand: [],
       selected: [],
       isSpectator: false,
+      mutedIds: [],
+      roundHistory: [],
     });
   };
 
@@ -122,6 +145,9 @@ export const useStore = create<Store>((set, get) => {
     publicRooms: [],
     publicRoomsLoading: false,
     error: null,
+    versionMismatch: false,
+    mutedIds: [],
+    roundHistory: [],
 
     async createRoom(nickname, isPublic = false) {
       const res = await call<JoinResult>('room:create', { nickname, isPublic });
@@ -204,7 +230,12 @@ export const useStore = create<Store>((set, get) => {
       } else {
         clearSession();
         set({ rejoining: false });
-        if (res.error.code !== 'ROOM_NOT_FOUND') fail(res.error.message);
+        // 방이 사라진 가장 흔한 원인은 서버 재시작(배포/슬립) — 원인을 알 수 있게 안내한다
+        if (res.error.code === 'ROOM_NOT_FOUND') {
+          fail('이전 게임 방을 찾을 수 없습니다 — 서버가 재시작되었거나 방이 종료된 것 같아요.');
+        } else {
+          fail(res.error.message);
+        }
       }
     },
 
@@ -235,6 +266,8 @@ export const useStore = create<Store>((set, get) => {
         selected: [],
         pendingTaxReturnCount: null,
         isSpectator: false,
+        mutedIds: [],
+        roundHistory: [],
       });
     },
 
@@ -301,6 +334,36 @@ export const useStore = create<Store>((set, get) => {
       return res.ok;
     },
 
+    async sitDown() {
+      const { me } = get();
+      const res = await call<JoinResult>('room:sit');
+      if (!res.ok) return fail(res.error.message);
+      const nickname = me?.nickname ?? '';
+      // 이제 정식 참가자 — 세션을 저장해 재접속 복구 대상이 된다
+      const session = {
+        roomCode: res.data.roomCode,
+        sessionToken: res.data.sessionToken,
+        playerId: res.data.playerId,
+        nickname,
+      };
+      saveSession(session);
+      set({ me: session, room: res.data.room, isSpectator: false });
+    },
+
+    async kickPlayer(playerId) {
+      const res = await call('room:kick', { playerId });
+      if (!res.ok) fail(res.error.message);
+    },
+
+    toggleMute(playerId) {
+      const { mutedIds } = get();
+      set({
+        mutedIds: mutedIds.includes(playerId)
+          ? mutedIds.filter((id) => id !== playerId)
+          : [...mutedIds, playerId],
+      });
+    },
+
     toggleSelect(cardId) {
       const { selected } = get();
       set({
@@ -337,6 +400,30 @@ socket.on('disconnect', () => {
   useStore.setState({ connected: false });
 });
 
+socket.on('server:hello', ({ protocolVersion }) => {
+  // 배포 직후 구버전 번들을 들고 있는 탭 — 새로고침 안내 배너를 띄운다
+  if (protocolVersion !== PROTOCOL_VERSION) {
+    useStore.setState({ versionMismatch: true });
+  }
+});
+
+socket.on('room:kicked', () => {
+  clearSession();
+  useStore.setState({
+    me: null,
+    room: null,
+    game: null,
+    hand: [],
+    chat: [],
+    selected: [],
+    pendingTaxReturnCount: null,
+    isSpectator: false,
+    mutedIds: [],
+    roundHistory: [],
+    error: '방장이 회원님을 내보냈습니다.',
+  });
+});
+
 socket.on('room:state', (room: RoomState) => {
   useStore.setState({ room });
 });
@@ -350,6 +437,17 @@ socket.on('game:state', (game: GamePublicState) => {
     game.phase === 'PLAYING' &&
     game.currentTurnPlayerId === meId &&
     prev.game?.currentTurnPlayerId !== meId;
+  // 세금 반환/혁명 선택도 "내가 행동할 차례" — 백그라운드 탭 알림 대상
+  const becameMyTax =
+    meId !== undefined &&
+    game.phase === 'TAXATION' &&
+    game.taxationPendingIds.includes(meId) &&
+    !(prev.game?.phase === 'TAXATION' && prev.game.taxationPendingIds.includes(meId));
+  const becameMyRevolution =
+    meId !== undefined &&
+    game.phase === 'REVOLUTION' &&
+    game.revolutionCandidateId === meId &&
+    prev.game?.revolutionCandidateId !== meId;
   useStore.setState((s) => ({
     game,
     // 세금 단계가 끝나면 반환 안내도 지운다 (다음 라운드로 새지 않게)
@@ -357,6 +455,9 @@ socket.on('game:state', (game: GamePublicState) => {
       game.phase === 'TAXATION' ? s.pendingTaxReturnCount : null,
   }));
   if (becameMyTurn) prev.pushFx('myturn', '내 차례!');
+  if (becameMyTurn) notifyMyTurn();
+  else if (becameMyTax) notifyMyTurn('🔔 세금 반환 차례!');
+  else if (becameMyRevolution) notifyMyTurn('🔔 혁명 선택!');
 });
 
 socket.on('game:hand', ({ cards, pendingTaxReturnCount }) => {
@@ -391,6 +492,8 @@ socket.on('room:closed', () => {
     selected: [],
     pendingTaxReturnCount: null,
     isSpectator: false,
+    mutedIds: [],
+    roundHistory: [],
     error: '방이 종료되었습니다.',
   });
 });
@@ -418,6 +521,33 @@ socket.on('game:event', (event: PublicGameEvent) => {
     case 'REVOLUTION_DECLARED':
       s.pushFx('revolution', event.isGreat ? '⚔ 대혁명 ⚔' : '⚔ 혁명 ⚔', event.isGreat);
       break;
+    // ── 게임 종료 요약용 라운드 결과 누적 ──
+    case 'ROUND_STARTED':
+      if (event.round === 1) useStore.setState({ roundHistory: [] }); // 새 게임(재대결 포함)
+      break;
+    case 'ROUND_ENDED':
+      useStore.setState({
+        roundHistory: [
+          ...s.roundHistory,
+          { round: event.round, placements: event.placements },
+        ],
+      });
+      break;
+    case 'GAME_ENDED': {
+      // 개인 전적 기록 (관전자는 제외). 공동 1위는 승리로 인정
+      const meId = s.me?.playerId;
+      if (!s.isSpectator && meId && s.game.players.some((p) => p.id === meId)) {
+        const myScore = s.game.players.find((p) => p.id === meId)?.score ?? 0;
+        const topScore = Math.max(...s.game.players.map((p) => p.score));
+        const dalmutiRounds = useStore
+          .getState()
+          .roundHistory.filter((r) =>
+            r.placements.some((pl) => pl.playerId === meId && pl.place === 1),
+          ).length;
+        recordGameResult(myScore === topScore, dalmutiRounds);
+      }
+      break;
+    }
     default:
       break;
   }

@@ -17,12 +17,14 @@ let port: number;
 let sockets: Socket[] = [];
 
 beforeAll(async () => {
+  process.env.RATE_LIMIT_MAX = '100000'; // 전체 게임을 사람 이상의 속도로 진행한다
   server = createGameServer();
   await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
   port = (server.httpServer.address() as AddressInfo).port;
 });
 
 afterAll(async () => {
+  delete process.env.RATE_LIMIT_MAX;
   await server.close();
   await new Promise<void>((resolve) => server.httpServer.close(() => resolve()));
 });

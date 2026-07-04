@@ -48,6 +48,18 @@ export type IoSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 type SocketData = { roomCode?: string; playerId?: string };
 
+/**
+ * 소켓당 전역 이벤트 rate limit (슬라이딩 윈도우).
+ * 채팅 도배 방지와 별개로, 목록 조회·방 생성 등 모든 이벤트의 폭주를 막는
+ * 어뷰징 방어선. 정상 플레이(퀵챗 연타 + 게임 액션)는 여유 있게 통과한다.
+ * 테스트는 0ms 봇과 함께 사람이 낼 수 없는 속도로 이벤트를 보내므로 env로 완화한다.
+ */
+const RATE_WINDOW_MS = 5_000;
+function rateMaxEvents(): number {
+  const override = Number(process.env.RATE_LIMIT_MAX);
+  return Number.isFinite(override) && override > 0 ? override : 25;
+}
+
 const fail = (code: string, message: string) =>
   ({ ok: false, error: { code, message } }) as const;
 const ok = <T>(data: T) => ({ ok: true, data }) as const;
@@ -92,6 +104,23 @@ export class GameGateway {
   ) {}
 
   register(socket: IoSocket): void {
+    // 모든 인바운드 이벤트에 소켓당 rate limit을 먼저 적용한다.
+    // 초과분은 ack가 있으면 오류로 응답하고, 없으면 조용히 버린다.
+    const stamps: number[] = [];
+    socket.use((packet, next) => {
+      const now = Date.now();
+      while (stamps.length > 0 && now - stamps[0]! >= RATE_WINDOW_MS) stamps.shift();
+      if (stamps.length >= rateMaxEvents()) {
+        const maybeAck = packet[packet.length - 1];
+        if (typeof maybeAck === 'function') {
+          maybeAck(fail('RATE_LIMITED', '요청이 너무 잦습니다. 잠시 후 다시 시도해주세요'));
+        }
+        return; // next()를 호출하지 않으면 이벤트가 핸들러에 도달하지 않는다
+      }
+      stamps.push(now);
+      next();
+    });
+
     socket.on('room:create', (payload, ack) => this.onCreate(socket, payload, ack));
     socket.on('room:join', (payload, ack) => this.onJoin(socket, payload, ack));
     socket.on('room:list', (ack) => this.onList(ack));
@@ -99,6 +128,8 @@ export class GameGateway {
     socket.on('room:setPublic', (payload, ack) => this.onSetPublic(socket, payload, ack));
     socket.on('room:rejoin', (payload, ack) => this.onRejoin(socket, payload, ack));
     socket.on('room:leave', (ack) => this.onLeave(socket, ack));
+    socket.on('room:kick', (payload, ack) => this.onKick(socket, payload, ack));
+    socket.on('room:sit', (ack) => this.onSit(socket, ack));
     socket.on('room:options', (payload, ack) => this.onOptions(socket, payload, ack));
     socket.on('room:addBot', (payload, ack) => this.onAddBot(socket, payload, ack));
     socket.on('room:removeBot', (payload, ack) => this.onRemoveBot(socket, payload, ack));
@@ -322,6 +353,71 @@ export class GameGateway {
       this.removeFromRoom(socket, ctx.room, ctx.memberId, '나갔습니다');
     }
     ack(ok(undefined));
+  }
+
+  /** 방장이 사람 멤버를 내보낸다 (로비 전용 — 게임 중 좌석은 엔진 제약상 뺄 수 없다) */
+  private onKick(socket: IoSocket, payload: { playerId: string }, ack: Ack): void {
+    if (typeof ack !== 'function') return;
+    const ctx = this.hostLobbyCtx(socket, ack);
+    if (!ctx) return;
+    const target =
+      typeof payload?.playerId === 'string' ? ctx.room.findById(payload.playerId) : undefined;
+    if (!target || target.isBot || target.id === ctx.memberId) {
+      return ack(fail('CANNOT_KICK', '내보낼 수 없는 대상입니다'));
+    }
+
+    const targetSocket = target.socketId
+      ? this.io.sockets.sockets.get(target.socketId)
+      : undefined;
+    ctx.room.members = ctx.room.members.filter((m) => m.id !== target.id);
+    ctx.room.forgetChatRate(target.id);
+    ctx.room.touch();
+    if (targetSocket) {
+      // 당사자에게 먼저 통지한 뒤 바인딩을 해제한다 (세션 토큰은 멤버 제거로 무효화됨)
+      targetSocket.emit('room:kicked');
+      (targetSocket.data as SocketData).roomCode = undefined;
+      (targetSocket.data as SocketData).playerId = undefined;
+      targetSocket.leave(ctx.room.code);
+    }
+    this.pushChat(ctx.room, systemMessage(`${target.nickname}님이 방장에 의해 내보내졌습니다.`));
+    this.broadcastRoom(ctx.room);
+    ack(ok(undefined));
+  }
+
+  /** 관전자가 빈 좌석에 앉아 참가자로 전환 (게임 진행 중에는 불가) */
+  private onSit(socket: IoSocket, ack: Ack<import('@dalmuti/shared').JoinResult>): void {
+    if (typeof ack !== 'function') return;
+    const ctx = getCtx(socket, this.rooms);
+    if (!ctx) return ack(fail('NOT_IN_ROOM', '방에 있지 않습니다'));
+    if (!ctx.isSpectator) return ack(fail('NOT_A_SPECTATOR', '이미 참가자입니다'));
+    const { room } = ctx;
+    if (room.isInGame) {
+      return ack(fail('GAME_ALREADY_STARTED', '게임이 끝난 뒤에 참가할 수 있습니다'));
+    }
+    if (room.isFull) return ack(fail('ROOM_FULL', '빈 좌석이 없습니다'));
+    const spectator = room.findSpectatorById(ctx.memberId);
+    if (!spectator) return ack(fail('NOT_IN_ROOM', '방에 있지 않습니다'));
+    if (room.members.some((m) => m.nickname === spectator.nickname)) {
+      return ack(fail('NICKNAME_TAKEN', '이미 사용 중인 닉네임입니다'));
+    }
+
+    room.spectators = room.spectators.filter((s) => s.id !== ctx.memberId);
+    room.forgetChatRate(ctx.memberId);
+    const member = createMember(spectator.nickname, socket.id);
+    room.members.push(member);
+    room.touch();
+    // 소켓 룸은 그대로 두고 바인딩만 새 참가자 id로 교체
+    (socket.data as SocketData).playerId = member.id;
+    this.pushChat(room, systemMessage(`👁 ${member.nickname}님이 관전을 마치고 참가했습니다.`));
+    this.broadcastRoom(room);
+    ack(
+      ok({
+        roomCode: room.code,
+        playerId: member.id,
+        sessionToken: member.sessionToken,
+        room: room.toState(),
+      }),
+    );
   }
 
   private onDisconnect(socket: IoSocket): void {

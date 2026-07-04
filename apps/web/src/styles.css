@@ -1452,3 +1452,134 @@ input::placeholder {
     font-size: 2.4rem;
   }
 }
+
+/* ── 운영·편의 개선 (버전 배너 / 초대 / 규칙 / 음소거 / 전적) ── */
+
+.version-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7em;
+  background: rgba(56, 209, 195, 0.12);
+  border-bottom: 1px solid rgba(56, 209, 195, 0.4);
+  color: var(--cyan);
+  text-align: center;
+  padding: 0.45em 0.8em;
+  font-size: 0.88rem;
+}
+
+.home-invited {
+  background: rgba(56, 209, 195, 0.1);
+  border: 1px solid rgba(56, 209, 195, 0.35);
+  border-radius: 12px;
+  color: var(--champagne);
+  padding: 0.6em 1em;
+  margin-bottom: 1em;
+  font-size: 0.92rem;
+}
+
+.rules-link {
+  margin-left: 0.6em;
+  vertical-align: middle;
+}
+
+.rules-card {
+  max-height: 82vh;
+  overflow-y: auto;
+  text-align: left;
+}
+.rules-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+  position: sticky;
+  top: 0;
+}
+.rules-head h3 {
+  margin: 0;
+}
+.rules-body section {
+  margin: 0.9em 0;
+}
+.rules-body h4 {
+  margin: 0 0 0.3em;
+  color: var(--gold-bright);
+  letter-spacing: 0.04em;
+}
+.rules-body p,
+.rules-body li {
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  margin: 0.25em 0;
+}
+.rules-body ul {
+  margin: 0.2em 0;
+  padding-left: 1.2em;
+}
+.rules-ranks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+}
+.rules-rank {
+  background: rgba(212, 175, 55, 0.1);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 0.12em 0.6em;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.lobby-sit-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  background: rgba(165, 102, 239, 0.1);
+  border: 1px solid rgba(165, 102, 239, 0.35);
+  border-radius: 12px;
+  padding: 0.55em 1em;
+  margin-bottom: 0.9em;
+  color: var(--champagne);
+  font-size: 0.92rem;
+}
+
+.icon-btn {
+  padding-inline: 0.5em;
+}
+
+.result-history {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  font-size: 0.85em;
+}
+
+.my-stats {
+  color: var(--champagne);
+  font-size: 0.9rem;
+  margin: 0.5em 0 0;
+}
+.my-stats-note {
+  color: var(--text-dim);
+  font-size: 0.8em;
+}
+
+.chat-muted {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.chat-mute-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.72rem;
+  opacity: 0.35;
+  padding: 0 0.2em;
+  transition: opacity 0.15s;
+}
+.chat-msg:hover .chat-mute-btn,
+.chat-mute-btn:focus-visible {
+  opacity: 0.9;
+}

@@ -11,6 +11,7 @@ export function App() {
   const game = useStore((s) => s.game);
   const error = useStore((s) => s.error);
   const setError = useStore((s) => s.setError);
+  const versionMismatch = useStore((s) => s.versionMismatch);
 
   // 오류 토스트 자동 제거
   useEffect(() => {
@@ -27,6 +28,14 @@ export function App() {
   return (
     <div className="app">
       {!connected && <div className="conn-banner">서버에 연결하는 중...</div>}
+      {versionMismatch && (
+        <div className="version-banner">
+          🔄 새 버전이 배포되었습니다 — 원활한 플레이를 위해 새로고침 해주세요.
+          <button type="button" className="btn btn-sm" onClick={() => location.reload()}>
+            새로고침
+          </button>
+        </div>
+      )}
       {error && (
         <div className="toast" onClick={() => setError(null)}>
           ⚠️ {error}

@@ -3,7 +3,11 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Server } from 'socket.io';
 import sirv from 'sirv';
-import type { ClientToServerEvents, ServerToClientEvents } from '@dalmuti/shared';
+import {
+  PROTOCOL_VERSION,
+  type ClientToServerEvents,
+  type ServerToClientEvents,
+} from '@dalmuti/shared';
 import { GameGateway } from './handlers';
 import { RoomManager } from './room';
 
@@ -34,11 +38,23 @@ export function createGameServer(): GameServer {
   }
   if (serveWeb) console.log(`[web] 정적 파일 서빙: ${webDist}`);
 
+  const startedAt = Date.now();
   const httpServer = createServer((req, res) => {
-    // 로드밸런서/모니터링용 헬스체크 (+ 방 수 지표)
+    // 로드밸런서/모니터링용 헬스체크 + 운영 지표
+    // ("어제 왜 느렸지?"에 답할 최소한의 관측 지점 — 외부 모니터가 주기 수집 가능)
     if (req.url === '/healthz') {
+      const stats = rooms.stats();
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          protocolVersion: PROTOCOL_VERSION,
+          uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+          sockets: io.engine?.clientsCount ?? 0,
+          memoryRssMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+          ...stats,
+        }),
+      );
       return;
     }
     if (serveWeb) {
@@ -68,7 +84,12 @@ export function createGameServer(): GameServer {
   });
 
   const gateway = new GameGateway(io, rooms);
-  io.on('connection', (socket) => gateway.register(socket));
+  io.on('connection', (socket) => {
+    // 접속 즉시 버전을 알린다 — 배포 후 구버전 번들을 캐시한 클라이언트가
+    // 스스로 "새로고침" 안내를 띄울 수 있도록 (프로토콜 스큐 대응)
+    socket.emit('server:hello', { protocolVersion: PROTOCOL_VERSION });
+    gateway.register(socket);
+  });
 
   const sweeper = setInterval(() => {
     // 삭제 전 남은 소켓(관전자 포함)을 방에서 분리해 코드 재사용 시 유출 방지
