@@ -36,6 +36,8 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
         : [...game.players.slice(mySeat + 1), ...game.players.slice(0, mySeat)],
     [game.players, mySeat],
   );
+  // 상대가 많으면 좌석을 한 줄 알약형으로 압축해 스크롤 없이 한 화면 유지
+  const compactSeats = opponents.length >= 5;
   const meState = game.players.find((p) => p.id === myId);
   const isMyTurn = game.currentTurnPlayerId === myId;
 
@@ -55,7 +57,8 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
           <span>
             라운드 {game.round}/{game.targetRounds}
           </span>
-          <TurnCountdown myId={myId} />
+          {/* 남의 차례 타이머만 헤더에 — 내 차례 타이머는 내 영역의 태그 옆에 */}
+          <TurnCountdown myId={myId} scope="others" />
           {room.spectatorCount > 0 && (
             <span className="spectator-count" title="관전자">
               👁 {room.spectatorCount}
@@ -78,12 +81,13 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
           </button>
         </header>
 
-        <div className="opponents">
+        <div className={`opponents ${compactSeats ? 'opponents-compact' : ''}`}>
           {opponents.map((p) => (
             <OpponentSeat
               key={p.id}
               player={p}
               isTurn={game.currentTurnPlayerId === p.id}
+              compact={compactSeats}
             />
           ))}
         </div>
@@ -133,6 +137,7 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
               {isMyTurn && game.phase === 'PLAYING' && (
                 <span className="turn-indicator">내 차례!</span>
               )}
+              <TurnCountdown myId={myId} scope="mine" />
               {meState?.finishedPlace && (
                 <span className="finished-indicator">
                   {placeMedal(meState.finishedPlace)} 완주!
@@ -186,7 +191,42 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
   );
 }
 
-function OpponentSeat({ player, isTurn }: { player: PlayerPublic; isTurn: boolean }) {
+function OpponentSeat({
+  player,
+  isTurn,
+  compact = false,
+}: {
+  player: PlayerPublic;
+  isTurn: boolean;
+  compact?: boolean;
+}) {
+  if (compact) {
+    // 5인 이상: 한 줄 알약형 좌석 — 스크롤 없이 전원이 한 화면에 들어온다
+    return (
+      <div
+        className={[
+          'seat',
+          'seat-compact',
+          isTurn ? 'seat-turn' : '',
+          player.connected ? '' : 'seat-disconnected',
+        ].join(' ')}
+      >
+        {player.rank && (
+          <span className="seat-rank-mini" title={SOCIAL_RANK_LABELS[player.rank].label}>
+            {SOCIAL_RANK_LABELS[player.rank].emoji}
+          </span>
+        )}
+        <span className="seat-name">
+          {player.nickname}
+          {player.isBot && ' 🤖'}
+        </span>
+        <span className="seat-count-mini">
+          {player.finishedPlace ? placeMedal(player.finishedPlace) : `🂠${player.handCount}`}
+        </span>
+        {isTurn && <span className="seat-turn-label">차례</span>}
+      </div>
+    );
+  }
   return (
     <div
       className={[
@@ -389,8 +429,12 @@ function nickOf(game: GamePublicState, playerId: string | null): string {
   return game.players.find((p) => p.id === playerId)?.nickname ?? '???';
 }
 
-/** 턴 제한 카운트다운 — 서버 game:timer 이벤트 기반 */
-function TurnCountdown({ myId }: { myId: string }) {
+/**
+ * 턴 제한 카운트다운 — 서버 game:timer 이벤트 기반.
+ * scope='mine': 내 타이머일 때만 (내 영역의 "내 차례!" 태그 옆에 표시)
+ * scope='others': 남의 타이머일 때만 (헤더에 표시)
+ */
+function TurnCountdown({ myId, scope }: { myId: string; scope: 'mine' | 'others' }) {
   const deadlineAt = useStore((s) => s.turnDeadlineAt);
   const timerPlayerId = useStore((s) => s.turnTimerPlayerId);
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -408,6 +452,7 @@ function TurnCountdown({ myId }: { myId: string }) {
 
   if (remaining === null || timerPlayerId === null) return null;
   const mine = timerPlayerId === myId;
+  if (scope === 'mine' ? !mine : mine) return null;
   return (
     <span className={`turn-countdown ${mine && remaining <= 10 ? 'countdown-urgent' : ''}`}>
       ⏰ {remaining}초

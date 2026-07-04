@@ -621,6 +621,39 @@ input::placeholder {
 .seat-disconnected {
   opacity: 0.45;
 }
+/* 5인 이상: 한 줄 알약형 좌석 (스크롤 방지) */
+.opponents-compact {
+  gap: 6px;
+}
+.seat-compact {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  text-align: left;
+}
+.seat-compact .seat-name {
+  font-size: 0.8rem;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seat-rank-mini {
+  font-size: 0.85rem;
+}
+.seat-count-mini {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--champagne);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.seat-compact .seat-turn-label {
+  margin-left: 2px;
+}
 .seat-name {
   font-weight: 800;
 }
