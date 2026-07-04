@@ -747,10 +747,12 @@ input::placeholder {
   margin-top: 10px;
 }
 
-/* ── 카드 (아이보리 + 골드 포일) ────────────────── */
+/* ── 카드 (아이보리 + 랭크별 색상/캐릭터) ─────────── */
 .card {
+  /* --accent: 랭크별 고유 색 (CardView가 인라인으로 주입) */
+  --accent: var(--gold);
   width: 58px;
-  height: 84px;
+  height: 86px;
   border-radius: 9px;
   background: linear-gradient(165deg, #fffdf4, var(--card-ivory) 55%, #e8e2d2);
   border: 1px solid rgba(0, 0, 0, 0.4);
@@ -759,11 +761,23 @@ input::placeholder {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  box-shadow: 0 0 0 1.5px rgba(212, 175, 55, 0.5) inset, 0 4px 10px rgba(0, 0, 0, 0.55);
+  gap: 2px;
+  box-shadow: 0 0 0 1.5px var(--accent) inset, 0 4px 10px rgba(0, 0, 0, 0.55);
   transition: transform 0.1s;
-  padding: 2px;
+  padding: 3px 2px;
   position: relative;
+}
+.card-emoji {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .card:disabled {
   cursor: default;
@@ -787,16 +801,16 @@ input::placeholder {
   50% { filter: brightness(1.1); }
 }
 .card-rank {
-  font-size: 1.55rem;
+  font-size: 1.3rem;
   font-weight: 900;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 .card-name {
-  font-size: 0.56rem;
-  opacity: 0.62;
-  letter-spacing: 0.1em;
-  font-weight: 700;
+  font-size: 0.54rem;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  font-weight: 800;
 }
 .card-pip {
   position: absolute;
@@ -804,7 +818,7 @@ input::placeholder {
   left: 6px;
   font-size: 0.58rem;
   font-weight: 800;
-  opacity: 0.85;
+  color: var(--accent);
 }
 .card-pip-br {
   top: auto;
@@ -824,19 +838,31 @@ input::placeholder {
   color: var(--violet);
   text-shadow: 0 0 12px rgba(165, 102, 239, 0.9);
 }
+.card-jester .card-name {
+  color: #cfaef7;
+}
+.card-jester .card-emoji {
+  background: rgba(165, 102, 239, 0.18);
+  border-color: rgba(165, 102, 239, 0.5);
+}
 .card-jester.card-selected {
   box-shadow: 0 0 0 1.5px var(--violet) inset, 0 0 0 2px var(--violet),
     0 0 22px rgba(165, 102, 239, 0.8), 0 10px 16px rgba(0, 0, 0, 0.55);
 }
 .card-small {
-  width: 46px;
-  height: 66px;
+  width: 48px;
+  height: 70px;
 }
 .card-small .card-rank {
-  font-size: 1.2rem;
+  font-size: 1.05rem;
 }
 .card-small .card-pip {
   display: none;
+}
+.card-small .card-emoji {
+  width: 21px;
+  height: 21px;
+  font-size: 0.8rem;
 }
 
 /* ── 오버레이 ─────────────────────────────────── */
@@ -1242,14 +1268,19 @@ input::placeholder {
     display: none;
   }
   .card {
-    width: 48px;
-    height: 72px;
+    width: 50px;
+    height: 76px;
   }
   .card-rank {
-    font-size: 1.2rem;
+    font-size: 1.1rem;
   }
   .card-pip {
     display: none;
+  }
+  .card-emoji {
+    width: 22px;
+    height: 22px;
+    font-size: 0.82rem;
   }
   .home-title {
     font-size: 2.4rem;
