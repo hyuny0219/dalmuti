@@ -279,6 +279,105 @@ input::placeholder {
   letter-spacing: 0.18em;
 }
 
+.home-public-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.home-public-check input {
+  accent-color: var(--gold);
+  width: 16px;
+  height: 16px;
+}
+
+/* 공개 방 목록 */
+.public-rooms {
+  width: min(560px, 92vw);
+  margin-top: 28px;
+}
+.public-rooms-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.public-rooms-head h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--champagne);
+}
+.public-rooms-empty {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-align: center;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 18px 16px;
+}
+.public-rooms-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.public-rooms-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--glass);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  font-size: 0.86rem;
+}
+.pr-code {
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: var(--gold-bright);
+  font-variant-numeric: tabular-nums;
+}
+.pr-host {
+  font-weight: 700;
+}
+.pr-meta {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 관전 */
+.spectator-count {
+  color: var(--cyan);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.spectator-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.spectator-flag {
+  background: rgba(56, 209, 195, 0.12);
+  border: 1px solid rgba(56, 209, 195, 0.45);
+  color: var(--cyan);
+  font-weight: 800;
+  padding: 3px 14px;
+  border-radius: 999px;
+  letter-spacing: 0.06em;
+}
+.spectator-hint {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
 /* ── 로비 ─────────────────────────────────────── */
 .lobby {
   flex: 1;
@@ -521,6 +620,73 @@ input::placeholder {
 }
 .seat-disconnected {
   opacity: 0.45;
+}
+/* 턴 순서 표시 */
+.turn-order-caption {
+  font-size: 0.66rem;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  text-align: left;
+  padding: 0 4px;
+  margin-bottom: -4px;
+}
+.seat-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(212, 175, 55, 0.16);
+  border: 1px solid var(--hairline);
+  color: var(--champagne);
+  font-size: 0.68rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.seat-order-done {
+  opacity: 0.35;
+  text-decoration: line-through;
+}
+.seat:not(.seat-compact) .seat-order {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+}
+
+/* 5인 이상: 한 줄 알약형 좌석 (스크롤 방지) */
+.opponents-compact {
+  gap: 6px;
+}
+.seat-compact {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  text-align: left;
+}
+.seat-compact .seat-name {
+  font-size: 0.8rem;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seat-rank-mini {
+  font-size: 0.85rem;
+}
+.seat-count-mini {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--champagne);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.seat-compact .seat-turn-label {
+  margin-left: 2px;
 }
 .seat-name {
   font-weight: 800;

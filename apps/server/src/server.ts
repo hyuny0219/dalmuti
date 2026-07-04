@@ -71,7 +71,8 @@ export function createGameServer(): GameServer {
   io.on('connection', (socket) => gateway.register(socket));
 
   const sweeper = setInterval(() => {
-    const removed = rooms.sweep();
+    // 삭제 전 남은 소켓(관전자 포함)을 방에서 분리해 코드 재사용 시 유출 방지
+    const removed = rooms.sweep(Date.now(), (room) => gateway.closeRoom(room));
     if (removed > 0) console.log(`[sweep] 방치된 방 ${removed}개 정리`);
   }, 60_000);
   sweeper.unref();

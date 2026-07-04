@@ -7,6 +7,7 @@ import {
   type BotDifficulty,
   type ChatMessage,
   type GameOptions,
+  type PublicRoomSummary,
   type RoomPlayer,
   type RoomState,
 } from '@dalmuti/shared';
@@ -29,6 +30,10 @@ export class Room {
   hostId: string;
   options: GameOptions;
   members: RoomMember[] = [];
+  /** 관전자 — 좌석 없이 공개 상태·채팅만 수신 */
+  spectators: RoomMember[] = [];
+  /** 공개 방 목록 노출 여부 */
+  isPublic = false;
   game: DalmutiGame | null = null;
   chat: ChatMessage[] = [];
   lastActivityAt = Date.now();
@@ -69,6 +74,10 @@ export class Room {
 
   findById(playerId: string): RoomMember | undefined {
     return this.members.find((m) => m.id === playerId);
+  }
+
+  findSpectatorById(id: string): RoomMember | undefined {
+    return this.spectators.find((s) => s.id === id);
   }
 
   /**
@@ -150,6 +159,22 @@ export class Room {
         }),
       ),
       options: { ...this.options },
+      isPublic: this.isPublic,
+      spectatorCount: this.spectators.length,
+    };
+  }
+
+  toPublicSummary(): PublicRoomSummary {
+    const host = this.members.find((m) => m.id === this.hostId);
+    return {
+      code: this.code,
+      hostNickname: host?.nickname ?? '???',
+      playerCount: this.members.length,
+      maxPlayers: MAX_PLAYERS,
+      inGame: this.isInGame,
+      round: this.game && this.game.phase !== 'GAME_END' ? this.game.round : null,
+      targetRounds: this.game ? this.options.targetRounds : null,
+      spectatorCount: this.spectators.length,
     };
   }
 }
@@ -283,14 +308,27 @@ export class RoomManager {
     return this.rooms.size;
   }
 
-  /** 전원이 나갔거나 30분 이상 방치된 방 정리 (봇만 남은 방은 사람이 없는 것으로 취급) */
-  sweep(now = Date.now()): number {
+  /** 공개 방 목록 (최근 활동 순, 최대 50개) */
+  listPublic(): PublicRoomSummary[] {
+    return [...this.rooms.values()]
+      .filter((r) => r.isPublic && r.members.length > 0)
+      .sort((a, b) => b.lastActivityAt - a.lastActivityAt)
+      .slice(0, 50)
+      .map((r) => r.toPublicSummary());
+  }
+
+  /**
+   * 전원이 나갔거나 30분 이상 방치된 방 정리 (봇만 남은 방은 사람이 없는 것으로 취급).
+   * onDelete로 소켓 정리(관전자 언바인딩 등)를 위임할 수 있다.
+   */
+  sweep(now = Date.now(), onDelete?: (room: Room) => void): number {
     const STALE_MS = 30 * 60 * 1000;
     let removed = 0;
     for (const [code, room] of this.rooms) {
       const empty = room.members.length === 0;
       const noHumanConnected = room.members.every((m) => m.isBot || !m.connected);
       if (empty || (noHumanConnected && now - room.lastActivityAt > STALE_MS)) {
+        onDelete?.(room);
         room.dispose();
         this.rooms.delete(code);
         removed++;

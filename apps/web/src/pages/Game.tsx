@@ -26,6 +26,7 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
   const playSelected = useStore((s) => s.playSelected);
   const passTurn = useStore((s) => s.passTurn);
   const leaveRoom = useStore((s) => s.leaveRoom);
+  const isSpectator = useStore((s) => s.isSpectator);
 
   const mySeat = game.players.findIndex((p) => p.id === myId);
   const opponents = useMemo(
@@ -35,6 +36,8 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
         : [...game.players.slice(mySeat + 1), ...game.players.slice(0, mySeat)],
     [game.players, mySeat],
   );
+  // 상대가 많으면 좌석을 한 줄 알약형으로 압축해 스크롤 없이 한 화면 유지
+  const compactSeats = opponents.length >= 5;
   const meState = game.players.find((p) => p.id === myId);
   const isMyTurn = game.currentTurnPlayerId === myId;
 
@@ -54,13 +57,22 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
           <span>
             라운드 {game.round}/{game.targetRounds}
           </span>
-          <TurnCountdown myId={myId} />
+          {/* 남의 차례 타이머만 헤더에 — 내 차례 타이머는 내 영역의 태그 옆에 */}
+          <TurnCountdown myId={myId} scope="others" />
+          {room.spectatorCount > 0 && (
+            <span className="spectator-count" title="관전자">
+              👁 {room.spectatorCount}
+            </span>
+          )}
           <span className="game-room-code">방 {room.code}</span>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => {
-              if (window.confirm('게임에서 나갈까요? 세션이 유지되어 다시 접속하면 복귀할 수 있습니다.')) {
+              if (
+                isSpectator ||
+                window.confirm('게임에서 나갈까요? 세션이 유지되어 다시 접속하면 복귀할 수 있습니다.')
+              ) {
                 void leaveRoom();
               }
             }}
@@ -69,12 +81,18 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
           </button>
         </header>
 
-        <div className="opponents">
-          {opponents.map((p) => (
+        {/* 좌석은 내 다음 차례부터 턴 진행 순서로 정렬 — 번호로 순서를 명시 */}
+        <div className="turn-order-caption" aria-hidden="true">
+          내 다음 순서 ▸
+        </div>
+        <div className={`opponents ${compactSeats ? 'opponents-compact' : ''}`}>
+          {opponents.map((p, i) => (
             <OpponentSeat
               key={p.id}
               player={p}
               isTurn={game.currentTurnPlayerId === p.id}
+              compact={compactSeats}
+              order={i + 1}
             />
           ))}
         </div>
@@ -104,6 +122,14 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
           )}
         </div>
 
+        {isSpectator ? (
+          <div className="my-area spectator-bar">
+            <span className="spectator-flag">👁 관전 중</span>
+            <span className="spectator-hint">
+              게임에 참여하지 않고 지켜보고 있습니다. 채팅은 사용할 수 있어요.
+            </span>
+          </div>
+        ) : (
         <div className="my-area">
           <div className="my-info">
             <span className="my-name">
@@ -116,6 +142,7 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
               {isMyTurn && game.phase === 'PLAYING' && (
                 <span className="turn-indicator">내 차례!</span>
               )}
+              <TurnCountdown myId={myId} scope="mine" />
               {meState?.finishedPlace && (
                 <span className="finished-indicator">
                   {placeMedal(meState.finishedPlace)} 완주!
@@ -160,6 +187,7 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
             </div>
           )}
         </div>
+        )}
       </div>
 
       <ChatPanel />
@@ -168,7 +196,56 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
   );
 }
 
-function OpponentSeat({ player, isTurn }: { player: PlayerPublic; isTurn: boolean }) {
+function OpponentSeat({
+  player,
+  isTurn,
+  compact = false,
+  order,
+}: {
+  player: PlayerPublic;
+  isTurn: boolean;
+  compact?: boolean;
+  /** 내 기준 턴 진행 순서 (1 = 내 바로 다음) */
+  order: number;
+}) {
+  // 완주자는 순서에서 빠지므로 번호를 흐리게 표시
+  const orderChip = (
+    <span
+      className={`seat-order ${player.finishedPlace ? 'seat-order-done' : ''}`}
+      title={`내 다음 ${order}번째 순서`}
+      aria-label={`턴 순서 ${order}번`}
+    >
+      {order}
+    </span>
+  );
+  if (compact) {
+    // 5인 이상: 한 줄 알약형 좌석 — 스크롤 없이 전원이 한 화면에 들어온다
+    return (
+      <div
+        className={[
+          'seat',
+          'seat-compact',
+          isTurn ? 'seat-turn' : '',
+          player.connected ? '' : 'seat-disconnected',
+        ].join(' ')}
+      >
+        {orderChip}
+        {player.rank && (
+          <span className="seat-rank-mini" title={SOCIAL_RANK_LABELS[player.rank].label}>
+            {SOCIAL_RANK_LABELS[player.rank].emoji}
+          </span>
+        )}
+        <span className="seat-name">
+          {player.nickname}
+          {player.isBot && ' 🤖'}
+        </span>
+        <span className="seat-count-mini">
+          {player.finishedPlace ? placeMedal(player.finishedPlace) : `🂠${player.handCount}`}
+        </span>
+        {isTurn && <span className="seat-turn-label">차례</span>}
+      </div>
+    );
+  }
   return (
     <div
       className={[
@@ -177,6 +254,7 @@ function OpponentSeat({ player, isTurn }: { player: PlayerPublic; isTurn: boolea
         player.connected ? '' : 'seat-disconnected',
       ].join(' ')}
     >
+      {orderChip}
       <div className="seat-name">
         {player.nickname}
         {player.isBot && ' 🤖'}
@@ -371,8 +449,12 @@ function nickOf(game: GamePublicState, playerId: string | null): string {
   return game.players.find((p) => p.id === playerId)?.nickname ?? '???';
 }
 
-/** 턴 제한 카운트다운 — 서버 game:timer 이벤트 기반 */
-function TurnCountdown({ myId }: { myId: string }) {
+/**
+ * 턴 제한 카운트다운 — 서버 game:timer 이벤트 기반.
+ * scope='mine': 내 타이머일 때만 (내 영역의 "내 차례!" 태그 옆에 표시)
+ * scope='others': 남의 타이머일 때만 (헤더에 표시)
+ */
+function TurnCountdown({ myId, scope }: { myId: string; scope: 'mine' | 'others' }) {
   const deadlineAt = useStore((s) => s.turnDeadlineAt);
   const timerPlayerId = useStore((s) => s.turnTimerPlayerId);
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -390,6 +472,7 @@ function TurnCountdown({ myId }: { myId: string }) {
 
   if (remaining === null || timerPlayerId === null) return null;
   const mine = timerPlayerId === myId;
+  if (scope === 'mine' ? !mine : mine) return null;
   return (
     <span className={`turn-countdown ${mine && remaining <= 10 ? 'countdown-urgent' : ''}`}>
       ⏰ {remaining}초

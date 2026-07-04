@@ -7,8 +7,10 @@ import type {
   GamePublicState,
   JoinResult,
   PublicGameEvent,
+  PublicRoomSummary,
   RejoinResult,
   RoomState,
+  SpectateResult,
 } from '@dalmuti/shared';
 import { call, socket } from './socket';
 import {
@@ -45,11 +47,19 @@ type Store = {
   turnTimerPlayerId: string | null;
   /** 현재 재생 중인 화면 이펙트 (한 번에 하나, 최신 우선) */
   fx: FxItem | null;
+  /** 관전자로 입장한 상태 (좌석 없음, 게임 액션 불가) */
+  isSpectator: boolean;
+  /** 홈 화면 공개 방 목록 */
+  publicRooms: PublicRoomSummary[];
+  publicRoomsLoading: boolean;
   /** 화면 상단 토스트로 보여줄 오류 */
   error: string | null;
 
-  createRoom: (nickname: string) => Promise<void>;
+  createRoom: (nickname: string, isPublic?: boolean) => Promise<void>;
   joinRoom: (roomCode: string, nickname: string) => Promise<void>;
+  spectateRoom: (roomCode: string, nickname: string) => Promise<void>;
+  fetchPublicRooms: () => Promise<void>;
+  setRoomPublic: (isPublic: boolean) => Promise<void>;
   rejoin: () => Promise<void>;
   leaveRoom: () => Promise<void>;
   startGame: () => Promise<void>;
@@ -84,7 +94,15 @@ export const useStore = create<Store>((set, get) => {
     };
     saveSession(me);
     saveNickname(nickname);
-    set({ me, room: data.room, chat: [], game: null, hand: [], selected: [] });
+    set({
+      me,
+      room: data.room,
+      chat: [],
+      game: null,
+      hand: [],
+      selected: [],
+      isSpectator: false,
+    });
   };
 
   return {
@@ -100,10 +118,13 @@ export const useStore = create<Store>((set, get) => {
     turnDeadlineAt: null,
     turnTimerPlayerId: null,
     fx: null,
+    isSpectator: false,
+    publicRooms: [],
+    publicRoomsLoading: false,
     error: null,
 
-    async createRoom(nickname) {
-      const res = await call<JoinResult>('room:create', { nickname });
+    async createRoom(nickname, isPublic = false) {
+      const res = await call<JoinResult>('room:create', { nickname, isPublic });
       if (res.ok) onJoined(res.data, nickname);
       else fail(res.error.message);
     },
@@ -115,6 +136,45 @@ export const useStore = create<Store>((set, get) => {
       });
       if (res.ok) onJoined(res.data, nickname);
       else fail(res.error.message);
+    },
+
+    async spectateRoom(roomCode, nickname) {
+      const res = await call<SpectateResult>('room:spectate', {
+        roomCode: roomCode.trim().toUpperCase(),
+        nickname,
+      });
+      if (!res.ok) return fail(res.error.message);
+      saveNickname(nickname);
+      // 관전은 세션을 저장하지 않는다 (새로고침 시 홈으로)
+      set({
+        me: {
+          roomCode: res.data.room.code,
+          sessionToken: '',
+          playerId: res.data.spectatorId,
+          nickname,
+        },
+        room: res.data.room,
+        game: res.data.game,
+        chat: res.data.chatHistory,
+        hand: [],
+        selected: [],
+        isSpectator: true,
+      });
+    },
+
+    async fetchPublicRooms() {
+      set({ publicRoomsLoading: true });
+      const res = await call<PublicRoomSummary[]>('room:list');
+      set({
+        publicRooms: res.ok ? res.data : [],
+        publicRoomsLoading: false,
+      });
+      if (!res.ok) fail(res.error.message);
+    },
+
+    async setRoomPublic(isPublic) {
+      const res = await call('room:setPublic', { isPublic });
+      if (!res.ok) fail(res.error.message);
     },
 
     async rejoin() {
@@ -152,9 +212,12 @@ export const useStore = create<Store>((set, get) => {
       // 오프라인 상태에서도 즉시 나가져야 하므로 서버 응답을 기다리지 않는다
       // (서버는 ack와 무관하게 disconnect로도 동일하게 정리한다)
       void call('room:leave');
-      const { room, game } = get();
+      const { room, game, isSpectator } = get();
       const midGame =
-        room?.phase === 'IN_GAME' && game !== null && game.phase !== 'GAME_END';
+        !isSpectator &&
+        room?.phase === 'IN_GAME' &&
+        game !== null &&
+        game.phase !== 'GAME_END';
       if (midGame) {
         // 서버가 좌석을 보존하는 경우이므로 세션 토큰도 보존한다 —
         // 지우면 "재접속으로 복귀 가능" 안내와 달리 영영 복귀할 수 없다.
@@ -171,6 +234,7 @@ export const useStore = create<Store>((set, get) => {
         chat: [],
         selected: [],
         pendingTaxReturnCount: null,
+        isSpectator: false,
       });
     },
 
@@ -312,6 +376,23 @@ socket.on('chat:message', (message: ChatMessage) => {
 
 socket.on('game:timer', ({ deadlineAt, playerId }) => {
   useStore.setState({ turnDeadlineAt: deadlineAt, turnTimerPlayerId: playerId });
+});
+
+socket.on('room:closed', () => {
+  const s = useStore.getState();
+  if (!s.room) return;
+  clearSession();
+  useStore.setState({
+    me: null,
+    room: null,
+    game: null,
+    hand: [],
+    chat: [],
+    selected: [],
+    pendingTaxReturnCount: null,
+    isSpectator: false,
+    error: '방이 종료되었습니다.',
+  });
 });
 
 // 게임 이벤트 → 화면 이펙트 매핑 (서버가 game:state를 먼저 보내므로 닉네임 조회 가능)
