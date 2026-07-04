@@ -20,6 +20,7 @@ let sockets: Socket[] = [];
 
 beforeAll(async () => {
   process.env.BOT_DELAY_MS = '0';
+  process.env.RATE_LIMIT_MAX = '100000'; // 드라이버가 사람 이상의 속도로 이벤트를 보낸다
   server = createGameServer();
   await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
   port = (server.httpServer.address() as AddressInfo).port;
@@ -27,6 +28,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   delete process.env.BOT_DELAY_MS;
+  delete process.env.RATE_LIMIT_MAX;
   await server.close();
   await new Promise<void>((resolve) => server.httpServer.close(() => resolve()));
 });

@@ -10,6 +10,7 @@ let sockets: Socket[] = [];
 
 beforeAll(async () => {
   process.env.BOT_DELAY_MS = '0';
+  process.env.RATE_LIMIT_MAX = '100000'; // 드라이버가 사람 이상의 속도로 이벤트를 보낸다
   process.env.ROUND_ADVANCE_MS = '300'; // 라운드 자동 진행을 빠르게
   server = createGameServer();
   await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
@@ -18,6 +19,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   delete process.env.BOT_DELAY_MS;
+  delete process.env.RATE_LIMIT_MAX;
   delete process.env.ROUND_ADVANCE_MS;
   await server.close();
   await new Promise<void>((resolve) => server.httpServer.close(() => resolve()));

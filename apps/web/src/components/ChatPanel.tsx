@@ -6,6 +6,8 @@ export function ChatPanel() {
   const chat = useStore((s) => s.chat);
   const sendChat = useStore((s) => s.sendChat);
   const me = useStore((s) => s.me);
+  const mutedIds = useStore((s) => s.mutedIds);
+  const toggleMute = useStore((s) => s.toggleMute);
   const [input, setInput] = useState('');
   const [collapsed, setCollapsed] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -71,7 +73,26 @@ export function ChatPanel() {
                   className={`chat-msg ${m.senderId === me?.playerId ? 'chat-mine' : ''}`}
                 >
                   <span className="chat-sender">{m.senderNickname}</span>
-                  <span className="chat-text">{m.text}</span>
+                  {m.senderId && mutedIds.includes(m.senderId) ? (
+                    <span className="chat-text chat-muted">(가려진 메시지)</span>
+                  ) : (
+                    <span className="chat-text">{m.text}</span>
+                  )}
+                  {m.senderId && m.senderId !== me?.playerId && (
+                    <button
+                      type="button"
+                      className="chat-mute-btn"
+                      title={
+                        mutedIds.includes(m.senderId)
+                          ? '이 사람 메시지 다시 보기'
+                          : '이 사람 메시지 가리기'
+                      }
+                      aria-label={`${m.senderNickname} 음소거 전환`}
+                      onClick={() => toggleMute(m.senderId!)}
+                    >
+                      {mutedIds.includes(m.senderId) ? '🔈' : '🔇'}
+                    </button>
+                  )}
                 </div>
               ),
             )}

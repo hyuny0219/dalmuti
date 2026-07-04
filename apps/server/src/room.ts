@@ -308,6 +308,19 @@ export class RoomManager {
     return this.rooms.size;
   }
 
+  /** 운영 지표 집계 (healthz 노출용) */
+  stats(): { rooms: number; gamesInProgress: number; players: number; spectators: number } {
+    let gamesInProgress = 0;
+    let players = 0;
+    let spectators = 0;
+    for (const room of this.rooms.values()) {
+      if (room.isInGame) gamesInProgress++;
+      players += room.members.filter((m) => !m.isBot).length;
+      spectators += room.spectators.length;
+    }
+    return { rooms: this.rooms.size, gamesInProgress, players, spectators };
+  }
+
   /** 공개 방 목록 (최근 활동 순, 최대 50개) */
   listPublic(): PublicRoomSummary[] {
     return [...this.rooms.values()]

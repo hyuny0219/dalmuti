@@ -12,6 +12,13 @@ export const MAX_PLAYERS = 10;
 export const MAX_CHAT_LENGTH = 200;
 export const CHAT_HISTORY_LIMIT = 100;
 
+/**
+ * 클라-서버 프로토콜 버전. 이벤트/페이로드가 호환되지 않게 바뀔 때 올린다.
+ * 서버는 접속 직후 server:hello로 자신의 버전을 알리고, 구버전 번들을 캐시한
+ * 클라이언트는 이를 비교해 "새로고침" 안내를 띄운다 (배포 중 버전 스큐 대응).
+ */
+export const PROTOCOL_VERSION = 2;
+
 export const RANK_NAMES_KO: Record<number, string> = {
   1: '달무티',
   2: '대주교',

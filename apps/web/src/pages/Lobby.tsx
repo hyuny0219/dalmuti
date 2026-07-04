@@ -6,7 +6,13 @@ import {
   type GameOptions,
 } from '@dalmuti/shared';
 import { ChatPanel } from '../components/ChatPanel';
+import { RulesModal } from '../components/RulesModal';
 import { useStore } from '../store';
+
+/** 이 방으로 바로 들어오는 초대 링크 */
+function inviteUrl(roomCode: string): string {
+  return `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+}
 
 const DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
   easy: '🟢 쉬움',
@@ -24,8 +30,13 @@ export function LobbyPage() {
   const removeBot = useStore((s) => s.removeBot);
   const setBotDifficulty = useStore((s) => s.setBotDifficulty);
   const leaveRoom = useStore((s) => s.leaveRoom);
+  const kickPlayer = useStore((s) => s.kickPlayer);
+  const isSpectator = useStore((s) => s.isSpectator);
+  const sitDown = useStore((s) => s.sitDown);
   const setError = useStore((s) => s.setError);
   const [botDifficulty, setNewBotDifficulty] = useState<BotDifficulty>('normal');
+  const [showRules, setShowRules] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const isHost = room.hostId === me.playerId;
   const canStart = room.players.length >= MIN_PLAYERS;
@@ -40,6 +51,30 @@ export function LobbyPage() {
     }
   };
 
+  /** 초대 링크: 모바일은 공유 시트(카톡 등), 그 외엔 클립보드 복사 */
+  const shareInvite = async () => {
+    const url = inviteUrl(room.code);
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: '달무티 온라인',
+          text: `달무티 한 판 어때요? 방 코드 ${room.code}`,
+          url,
+        });
+        return;
+      }
+    } catch {
+      // 공유 시트 취소/미지원 — 복사로 폴백
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('링크 복사에 실패했습니다. 방 코드를 직접 공유해주세요');
+    }
+  };
+
   const setOpt = (patch: Partial<GameOptions>) => void updateOptions(patch);
 
   return (
@@ -50,7 +85,32 @@ export function LobbyPage() {
           <button type="button" className="room-code" onClick={() => void copyCode()}>
             방 코드: <strong>{room.code}</strong> 📋
           </button>
+          <button type="button" className="btn btn-sm" onClick={() => void shareInvite()}>
+            {copied ? '✅ 링크 복사됨!' : '🔗 초대 링크'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setShowRules(true)}
+          >
+            📜 규칙
+          </button>
         </div>
+        {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+
+        {isSpectator && (
+          <div className="lobby-sit-banner">
+            👁 관전 중입니다.
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={isFull}
+              onClick={() => void sitDown()}
+            >
+              {isFull ? '좌석이 가득 찼습니다' : '🪑 참가하기'}
+            </button>
+          </div>
+        )}
 
         <ul className="lobby-players">
           {room.players.map((p) => (
@@ -94,6 +154,21 @@ export function LobbyPage() {
               )}
               {!p.connected && !p.isBot && (
                 <span className="player-status">연결 끊김</span>
+              )}
+              {isHost && !p.isBot && p.id !== me.playerId && (
+                <button
+                  type="button"
+                  className="bot-remove"
+                  aria-label={`${p.nickname} 내보내기`}
+                  title="내보내기"
+                  onClick={() => {
+                    if (window.confirm(`${p.nickname}님을 방에서 내보낼까요?`)) {
+                      void kickPlayer(p.id);
+                    }
+                  }}
+                >
+                  ✕
+                </button>
               )}
             </li>
           ))}

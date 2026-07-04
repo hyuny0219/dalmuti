@@ -105,6 +105,10 @@ export type ClientToServerEvents = {
     ack: Ack<RejoinResult>,
   ) => void;
   'room:leave': (ack: Ack) => void;
+  /** 방장: 사람 멤버 내보내기 (로비 전용, 봇은 room:removeBot) */
+  'room:kick': (payload: { playerId: string }, ack: Ack) => void;
+  /** 관전자: 게임이 진행 중이 아닐 때 빈 좌석에 앉아 참가자로 전환 */
+  'room:sit': (ack: Ack<JoinResult>) => void;
   'room:options': (payload: Partial<GameOptions>, ack: Ack) => void;
   'room:addBot': (payload: { difficulty: BotDifficulty }, ack: Ack) => void;
   'room:removeBot': (payload: { botId: string }, ack: Ack) => void;
@@ -140,6 +144,10 @@ export type ServerToClientEvents = {
   'chat:message': (message: ChatMessage) => void;
   /** 방이 삭제됨 (전원 퇴장 등) — 남아 있는 관전자 등에게 통지 */
   'room:closed': () => void;
+  /** 접속 직후 1회: 서버 프로토콜 버전 (버전 스큐 감지용) */
+  'server:hello': (payload: { protocolVersion: number }) => void;
+  /** 방장에 의해 내보내진 당사자에게 통지 */
+  'room:kicked': () => void;
 };
 
 /** 서버 오류 코드 (GameErrorCode 외 서버 계층 오류) */
@@ -159,5 +167,8 @@ export type ServerErrorCode =
   | 'INVALID_SESSION'
   | 'INVALID_PAYLOAD'
   | 'CHAT_RATE_LIMITED'
+  | 'RATE_LIMITED'
   | 'NOT_ENOUGH_PLAYERS'
+  | 'CANNOT_KICK'
+  | 'NOT_A_SPECTATOR'
   | 'SERVER_FULL';

@@ -8,7 +8,10 @@ import {
 import { CardBackStack, CardView } from '../components/CardView';
 import { ChatPanel } from '../components/ChatPanel';
 import { EffectLayer } from '../components/EffectLayer';
+import { RulesModal } from '../components/RulesModal';
 import { placeMedal, SOCIAL_RANK_LABELS } from '../format';
+import { isSoundOn, setSoundOn } from '../notify';
+import { loadStats } from '../stats';
 import { useStore } from '../store';
 
 export function GamePage() {
@@ -27,6 +30,13 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
   const passTurn = useStore((s) => s.passTurn);
   const leaveRoom = useStore((s) => s.leaveRoom);
   const isSpectator = useStore((s) => s.isSpectator);
+  const sitDown = useStore((s) => s.sitDown);
+  const [showRules, setShowRules] = useState(false);
+  const [soundOn, setSoundOnState] = useState(isSoundOn);
+  const toggleSound = () => {
+    setSoundOn(!soundOn);
+    setSoundOnState(!soundOn);
+  };
 
   const mySeat = game.players.findIndex((p) => p.id === myId);
   const opponents = useMemo(
@@ -65,6 +75,24 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
             </span>
           )}
           <span className="game-room-code">방 {room.code}</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm icon-btn"
+            title={soundOn ? '알림음 끄기' : '알림음 켜기'}
+            aria-label={soundOn ? '알림음 끄기' : '알림음 켜기'}
+            onClick={toggleSound}
+          >
+            {soundOn ? '🔊' : '🔇'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm icon-btn"
+            title="규칙 보기"
+            aria-label="규칙 보기"
+            onClick={() => setShowRules(true)}
+          >
+            📜
+          </button>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -128,6 +156,15 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
             <span className="spectator-hint">
               게임에 참여하지 않고 지켜보고 있습니다. 채팅은 사용할 수 있어요.
             </span>
+            {game.phase === 'GAME_END' && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => void sitDown()}
+              >
+                🪑 다음 게임 참가하기
+              </button>
+            )}
           </div>
         ) : (
         <div className="my-area">
@@ -192,6 +229,7 @@ function GameBoard({ game, myId }: { game: GamePublicState; myId: string }) {
 
       <ChatPanel />
       <PhaseOverlay game={game} myId={myId} />
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
     </div>
   );
 }
@@ -291,6 +329,9 @@ function PhaseOverlay({ game, myId }: { game: GamePublicState; myId: string }) {
   const nextRound = useStore((s) => s.nextRound);
   const startGame = useStore((s) => s.startGame);
   const leaveRoom = useStore((s) => s.leaveRoom);
+  const roundHistory = useStore((s) => s.roundHistory);
+  const isSpectator = useStore((s) => s.isSpectator);
+  const sitDown = useStore((s) => s.sitDown);
 
   const isHost = room.hostId === myId;
 
@@ -388,6 +429,13 @@ function PhaseOverlay({ game, myId }: { game: GamePublicState; myId: string }) {
     );
     const byScore = [...game.players].sort((a, b) => b.score - a.score);
     const list = isEnd ? byScore : byPlace;
+    // 라운드별 완주 순위 (예: 1·3·2) — 게임 흐름을 한눈에
+    const placesOf = (playerId: string) =>
+      roundHistory
+        .map((r) => r.placements.find((pl) => pl.playerId === playerId)?.place ?? '-')
+        .join('·');
+    const showHistory = isEnd && roundHistory.length > 1;
+    const stats = isEnd && !isSpectator ? loadStats() : null;
     return (
       <div className="overlay">
         <div className="overlay-card overlay-wide">
@@ -397,6 +445,7 @@ function PhaseOverlay({ game, myId }: { game: GamePublicState; myId: string }) {
               <tr>
                 <th>{isEnd ? '최종 순위' : '완주'}</th>
                 <th>이름</th>
+                {showHistory && <th>라운드별</th>}
                 <th>{isEnd ? '점수' : '다음 계급'}</th>
               </tr>
             </thead>
@@ -408,6 +457,7 @@ function PhaseOverlay({ game, myId }: { game: GamePublicState; myId: string }) {
                     {p.nickname}
                     {p.id === myId && ' (나)'}
                   </td>
+                  {showHistory && <td className="result-history">{placesOf(p.id)}</td>}
                   <td>
                     {isEnd
                       ? `${p.score}점`
@@ -419,7 +469,22 @@ function PhaseOverlay({ game, myId }: { game: GamePublicState; myId: string }) {
               ))}
             </tbody>
           </table>
+          {stats && stats.games > 0 && (
+            <p className="my-stats">
+              📊 내 전적: {stats.games}전 {stats.wins}승 · 달무티 등극 {stats.dalmutiRounds}회
+              <span className="my-stats-note"> (이 브라우저 기준)</span>
+            </p>
+          )}
           <div className="overlay-actions">
+            {isSpectator && isEnd && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void sitDown()}
+              >
+                🪑 다음 게임 참가하기
+              </button>
+            )}
             {isHost ? (
               <button
                 type="button"
