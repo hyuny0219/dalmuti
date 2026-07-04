@@ -31,8 +31,10 @@ export function CardView({
       aria-label={label}
       aria-pressed={onClick ? selected : undefined}
     >
+      <span className="card-pip" aria-hidden="true">{isJester ? '★' : card.rank}</span>
       <span className="card-rank">{isJester ? '★' : card.rank}</span>
       {!small && <span className="card-name">{cardName(card.rank)}</span>}
+      <span className="card-pip card-pip-br" aria-hidden="true">{isJester ? '★' : card.rank}</span>
     </button>
   );
 }
